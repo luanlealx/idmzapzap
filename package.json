@@ -1,0 +1,25 @@
+{
+  "name": "idm-portfolio-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp bot for crypto portfolio tracking",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:schema": "echo 'Run scripts/schema.sql in Supabase SQL Editor'"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@supabase/supabase-js": "^2.47.12",
+    "fastify": "^5.2.1",
+    "dotenv": "^16.4.7",
+    "pino-pretty": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "typescript": "^5.7.3",
+    "tsx": "^4.19.2"
+  }
+}
