@@ -1,11 +1,35 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { EvolutionWebhookPayload, ParsedMessage } from '../types/index.js';
+import { env } from '../config/env.js';
+
+// =====================================================
+// 🔒 SECURITY CONSTANTS
+// =====================================================
+
+// Max message length to process (prevents abuse / memory exhaustion)
+const MAX_MESSAGE_LENGTH = 500;
+
+// Valid phone number pattern: 10-15 digits (international format)
+const PHONE_REGEX = /^\d{10,15}$/;
+
+// Sanitize display names: strip control chars, limit length
+function sanitizePushName(name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  // Remove control characters, trim, limit to 50 chars
+  return name.replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, 50) || undefined;
+}
 
 export function parseMessage(payload: EvolutionWebhookPayload): ParsedMessage | null {
   const { data } = payload;
 
   // Ignore messages sent by the bot itself (fromMe + source web)
   if (data.key.fromMe && data.source === 'web') {
+    return null;
+  }
+
+  // Ignore group messages — only private chats
+  const remoteJid = data.key.remoteJid ?? '';
+  if (remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast')) {
     return null;
   }
 
@@ -22,20 +46,27 @@ export function parseMessage(payload: EvolutionWebhookPayload): ParsedMessage | 
     return null;
   }
 
+  // 🔒 Truncate oversized messages
+  if (text.length > MAX_MESSAGE_LENGTH) {
+    text = text.slice(0, MAX_MESSAGE_LENGTH);
+  }
+
   // Extract phone number from sender field (Evolution v1.x format)
   // Format: 5511999999999@s.whatsapp.net
   // Fallback to remoteJid if sender is not present
   const senderJid = payload.sender ?? data.key.remoteJid;
   const phoneNumber = senderJid.split('@')[0];
 
-  if (!phoneNumber) {
+  // 🔒 Validate phone number format
+  if (!phoneNumber || !PHONE_REGEX.test(phoneNumber)) {
+    console.warn('[Webhook] Invalid phone number format, ignoring');
     return null;
   }
 
   return {
     phoneNumber,
     text: text.trim(),
-    pushName: data.pushName,
+    pushName: sanitizePushName(data.pushName),
     messageId: data.key.id,
     timestamp: data.messageTimestamp ?? Date.now(),
   };
@@ -46,9 +77,22 @@ async function handleWebhook(
   reply: FastifyReply
 ): Promise<void> {
   try {
+    // 🔒 Verify webhook authenticity via API key header
+    const apiKey = request.headers['apikey'] as string | undefined;
+    if (apiKey && apiKey !== env.EVOLUTION_API_KEY) {
+      console.warn('[Webhook] Invalid API key in webhook request');
+      reply.status(401).send({ status: 'unauthorized' });
+      return;
+    }
+
     const payload = request.body;
 
-    console.log('[Webhook] Raw payload:', JSON.stringify(payload, null, 2));
+    // 🔒 Safe logging: only log event type, not full payload with personal data
+    if (env.NODE_ENV === 'development') {
+      console.log('[Webhook] Raw payload:', JSON.stringify(payload, null, 2));
+    } else {
+      console.log(`[Webhook] Event received: ${payload.event ?? 'messages.upsert'}`);
+    }
 
     // Evolution v1.x sends event in different format when using webhook_by_events
     // The event might already be filtered by the URL path
@@ -64,7 +108,11 @@ async function handleWebhook(
       return;
     }
 
-    console.log(`[Webhook] Received message from ${message.phoneNumber}: ${message.text}`);
+    // 🔒 Safe logging: mask phone number in production
+    const maskedPhone = env.NODE_ENV === 'production'
+      ? `${message.phoneNumber.slice(0, 4)}***${message.phoneNumber.slice(-2)}`
+      : message.phoneNumber;
+    console.log(`[Webhook] Message from ${maskedPhone}: "${message.text.slice(0, 80)}"`);
 
     // Import and call message router (lazy import to avoid circular deps)
     const { processMessage } = await import('../services/message-router.js');

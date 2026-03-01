@@ -1,4 +1,5 @@
 import type { ParsedMessage } from '../types/index.js';
+import { env } from '../config/env.js';
 import { findOrCreateUser } from '../database/repositories/user.repo.js';
 import { parseIntent } from './intent-parser.js';
 import {
@@ -16,12 +17,43 @@ import { sendMessageWithTyping } from './whatsapp.js';
 import * as response from './response-builder.js';
 import { checkRateLimit, recordRequest } from '../utils/rate-limiter.js';
 
+// =====================================================
+// 🔒 SECURITY: Admin whitelist
+// =====================================================
+// During beta, only whitelisted numbers can use the bot.
+// Set ADMIN_WHITELIST env var with comma-separated phone numbers.
+// Leave empty to allow all (production mode).
+// Example: ADMIN_WHITELIST=5573999999999,5511888888888
+const ADMIN_WHITELIST: Set<string> | null = (() => {
+  const raw = process.env['ADMIN_WHITELIST']?.trim();
+  if (!raw) return null; // No whitelist = open to all
+  return new Set(raw.split(',').map(n => n.trim()));
+})();
+
+// 🔒 Transaction safety limits (BRL)
+const MAX_TRANSACTION_FIAT = 1_000_000; // R$ 1M max per transaction
+const MAX_DCA_GOAL = 10_000_000; // R$ 10M max DCA goal
+
 export async function processMessage(message: ParsedMessage): Promise<void> {
   const { phoneNumber, text, pushName } = message;
 
-  console.log(`[Router] Processing message from ${phoneNumber}: "${text}"`);
+  // 🔒 Safe logging
+  const maskedPhone = env.NODE_ENV === 'production'
+    ? `${phoneNumber.slice(0, 4)}***${phoneNumber.slice(-2)}`
+    : phoneNumber;
+  console.log(`[Router] Processing message from ${maskedPhone}: "${text.slice(0, 80)}"`);
 
   try {
+    // 🔒 Whitelist check (beta mode)
+    if (ADMIN_WHITELIST && !ADMIN_WHITELIST.has(phoneNumber)) {
+      console.log(`[Router] Blocked: ${maskedPhone} not in whitelist`);
+      await sendMessageWithTyping(
+        phoneNumber,
+        '🔒 O IDM Carteira está em fase beta. Em breve você poderá usar! Fique de olho na comunidade.'
+      );
+      return;
+    }
+
     // Check rate limit
     const rateLimitResult = checkRateLimit(phoneNumber);
     if (!rateLimitResult.allowed) {
@@ -35,7 +67,7 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
 
     // Get or create user
     const user = await findOrCreateUser(phoneNumber, pushName);
-    console.log(`[Router] User: ${user.id} (${user.phone_number})`);
+    console.log(`[Router] User: ${user.id} (${maskedPhone})`);
 
     // Check if this is a new user (for onboarding)
     const isNewUser = !user.name && pushName;
@@ -85,6 +117,14 @@ async function handleIntent(
         );
       }
 
+      // 🔒 Validate transaction amount
+      if (amountFiat && (amountFiat <= 0 || amountFiat > MAX_TRANSACTION_FIAT)) {
+        return response.buildError('Valor inválido. Informe um valor entre R$ 0,01 e R$ 1.000.000.');
+      }
+      if (amountCrypto && amountCrypto <= 0) {
+        return response.buildError('Quantidade de cripto precisa ser maior que zero.');
+      }
+
       const result = await registerBuy(
         userId,
         crypto,
@@ -107,6 +147,14 @@ async function handleIntent(
         return response.buildError(
           'Quanto você vendeu? Ex: "vendi 0.5 eth por 5000"'
         );
+      }
+
+      // 🔒 Validate sell amounts
+      if (amountCrypto <= 0) {
+        return response.buildError('Quantidade precisa ser maior que zero.');
+      }
+      if (amountFiat && (amountFiat <= 0 || amountFiat > MAX_TRANSACTION_FIAT)) {
+        return response.buildError('Valor inválido. Informe um valor entre R$ 0,01 e R$ 1.000.000.');
       }
 
       const result = await registerSell(userId, crypto, amountCrypto, amountFiat, price);
@@ -178,6 +226,11 @@ async function handleIntent(
         return response.buildError(
           'Como definir meta: "meta 10000 em btc"'
         );
+      }
+
+      // 🔒 Validate DCA goal
+      if (goalAmount <= 0 || goalAmount > MAX_DCA_GOAL) {
+        return response.buildError('Meta precisa ser entre R$ 1 e R$ 10.000.000.');
       }
 
       await setDcaGoal(userId, crypto, goalAmount);

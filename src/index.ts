@@ -5,6 +5,8 @@ import { registerEvolutionWebhook } from './webhooks/evolution.js';
 
 async function main(): Promise<void> {
   const app = Fastify({
+    // 🔒 Limit request body to 1MB (webhooks are small JSON)
+    bodyLimit: 1_048_576,
     logger: {
       level: env.NODE_ENV === 'production' ? 'info' : 'debug',
       transport:
