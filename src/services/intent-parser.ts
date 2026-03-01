@@ -57,7 +57,7 @@ export async function parseIntent(text: string): Promise<ParsedIntent> {
 
 async function parseWithLLM(text: string): Promise<ParsedIntent> {
   const response = await anthropic.messages.create({
-    model: 'claude-3-haiku-20240307',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 256,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: text }],

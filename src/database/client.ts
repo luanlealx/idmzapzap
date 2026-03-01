@@ -5,7 +5,9 @@ let supabaseClient: SupabaseClient | null = null;
 
 export function getSupabaseClient(): SupabaseClient {
   if (!supabaseClient) {
-    supabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
+    // Usa service_role key: acesso total ao banco, server-side only
+    // A anon key está bloqueada por RLS — ninguém externo acessa os dados
+    supabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
   }
   return supabaseClient;
 }

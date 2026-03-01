@@ -3,7 +3,7 @@ import type { Holding, DcaGoal } from '../../types/index.js';
 
 export async function getHoldingsByUser(userId: string): Promise<Holding[]> {
   const { data, error } = await supabase
-    .from('user_holdings')
+    .from('idm_user_holdings')
     .select('*')
     .eq('user_id', userId);
 
@@ -20,7 +20,7 @@ export async function getHoldingByUserAndCrypto(
   cryptoId: string
 ): Promise<Holding | null> {
   const { data, error } = await supabase
-    .from('user_holdings')
+    .from('idm_user_holdings')
     .select('*')
     .eq('user_id', userId)
     .eq('crypto_id', cryptoId)
@@ -35,7 +35,7 @@ export async function getHoldingByUserAndCrypto(
 }
 
 export async function refreshHoldings(): Promise<void> {
-  const { error } = await supabase.rpc('refresh_user_holdings');
+  const { error } = await supabase.rpc('idm_refresh_holdings');
 
   if (error) {
     console.error('[PortfolioRepo] Error refreshing holdings:', error);
@@ -46,7 +46,7 @@ export async function refreshHoldings(): Promise<void> {
 // DCA Goals
 export async function getDcaGoal(userId: string, cryptoId: string): Promise<DcaGoal | null> {
   const { data, error } = await supabase
-    .from('dca_goals')
+    .from('idm_dca_goals')
     .select('*')
     .eq('user_id', userId)
     .eq('crypto_id', cryptoId)
@@ -62,7 +62,7 @@ export async function getDcaGoal(userId: string, cryptoId: string): Promise<DcaG
 
 export async function getDcaGoalsByUser(userId: string): Promise<DcaGoal[]> {
   const { data, error } = await supabase
-    .from('dca_goals')
+    .from('idm_dca_goals')
     .select('*')
     .eq('user_id', userId);
 
@@ -80,7 +80,7 @@ export async function setDcaGoal(
   goalAmount: number
 ): Promise<DcaGoal> {
   const { data, error } = await supabase
-    .from('dca_goals')
+    .from('idm_dca_goals')
     .upsert(
       {
         user_id: userId,
@@ -102,7 +102,7 @@ export async function setDcaGoal(
 
 export async function deleteDcaGoal(userId: string, cryptoId: string): Promise<void> {
   const { error } = await supabase
-    .from('dca_goals')
+    .from('idm_dca_goals')
     .delete()
     .eq('user_id', userId)
     .eq('crypto_id', cryptoId);
@@ -124,7 +124,7 @@ export async function createZeroingTransaction(
     return;
   }
 
-  const { error } = await supabase.from('transactions').insert({
+  const { error } = await supabase.from('idm_transactions').insert({
     user_id: userId,
     crypto_id: cryptoId,
     type: 'sell',

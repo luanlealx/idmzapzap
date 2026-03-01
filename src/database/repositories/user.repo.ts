@@ -8,7 +8,7 @@ export interface CreateUserInput {
 
 export async function findUserByPhone(phoneNumber: string): Promise<User | null> {
   const { data, error } = await supabase
-    .from('users')
+    .from('idm_users')
     .select('*')
     .eq('phone_number', phoneNumber)
     .single();
@@ -24,7 +24,7 @@ export async function findUserByPhone(phoneNumber: string): Promise<User | null>
 
 export async function createUser(input: CreateUserInput): Promise<User> {
   const { data, error } = await supabase
-    .from('users')
+    .from('idm_users')
     .insert({
       phone_number: input.phoneNumber,
       name: input.name,
@@ -49,7 +49,7 @@ export async function findOrCreateUser(phoneNumber: string, name?: string): Prom
   } else if (name && !user.name) {
     // Update name if we have it and user doesn't
     const { data, error } = await supabase
-      .from('users')
+      .from('idm_users')
       .update({ name })
       .eq('id', user.id)
       .select()
@@ -65,7 +65,7 @@ export async function findOrCreateUser(phoneNumber: string, name?: string): Prom
 
 export async function updateUserName(userId: string, name: string): Promise<User | null> {
   const { data, error } = await supabase
-    .from('users')
+    .from('idm_users')
     .update({ name })
     .eq('id', userId)
     .select()

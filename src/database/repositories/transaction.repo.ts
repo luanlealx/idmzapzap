@@ -3,7 +3,7 @@ import type { Transaction, CreateTransactionInput } from '../../types/index.js';
 
 export async function createTransaction(input: CreateTransactionInput): Promise<Transaction> {
   const { data, error } = await supabase
-    .from('transactions')
+    .from('idm_transactions')
     .insert({
       user_id: input.userId,
       crypto_id: input.cryptoId,
@@ -25,7 +25,7 @@ export async function createTransaction(input: CreateTransactionInput): Promise<
 
 export async function getTransactionsByUser(userId: string): Promise<Transaction[]> {
   const { data, error } = await supabase
-    .from('transactions')
+    .from('idm_transactions')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
@@ -43,7 +43,7 @@ export async function getTransactionsByUserAndCrypto(
   cryptoId: string
 ): Promise<Transaction[]> {
   const { data, error } = await supabase
-    .from('transactions')
+    .from('idm_transactions')
     .select('*')
     .eq('user_id', userId)
     .eq('crypto_id', cryptoId)
@@ -62,7 +62,7 @@ export async function getRecentTransactions(
   limit: number = 10
 ): Promise<Transaction[]> {
   const { data, error } = await supabase
-    .from('transactions')
+    .from('idm_transactions')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
@@ -78,7 +78,7 @@ export async function getRecentTransactions(
 
 export async function deleteTransaction(transactionId: string): Promise<void> {
   const { error } = await supabase
-    .from('transactions')
+    .from('idm_transactions')
     .delete()
     .eq('id', transactionId);
 
