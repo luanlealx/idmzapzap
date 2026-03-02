@@ -54,26 +54,26 @@ function getCryptoColor(cryptoId: string): string {
 const MONKEY_PHRASES = {
   bigProfit: [
     'GORILA DIAMOND HANDS!',
-    'Macaco esperto nao vende!',
+    'Macaco esperto não vende!',
     'APE TOGETHER STRONG!',
-    'Esse primata ta rico!',
+    'Esse primata tá rico!',
   ],
   smallProfit: [
-    'Ta crescendo, macaco!',
+    'Tá crescendo, macaco!',
     'Gorila paciente lucra!',
     'Banana a banana se enche!',
     'Segura firme, primata!',
   ],
   bigLoss: [
-    'Nao olha nao...',
-    'Gorila HODLer nao chora!',
-    'E projeto de longo prazo...',
+    'Não olha não...',
+    'Gorila HODLer não chora!',
+    'É projeto de longo prazo...',
     'Calma, macaco. Calma.',
   ],
   smallLoss: [
-    'So um arranhao!',
-    'Gorila nao sente isso.',
-    'Oscilacao e normal.',
+    'Só um arranhão!',
+    'Gorila não sente isso.',
+    'Oscilação é normal.',
     'Nada que assuste.',
   ],
   neutral: [
@@ -89,7 +89,7 @@ const MONKEY_PHRASES = {
     'Blockchain do macaco.',
   ],
   price: [
-    'Gorila ta de olho!',
+    'Gorila tá de olho!',
     'Cotacao do macaco!',
     'Preco fresquinho!',
     'Primata informado.',

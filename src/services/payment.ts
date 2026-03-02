@@ -322,7 +322,7 @@ async function generatePixCheckout(
       `🔑 *Copia e Cola:*\n\`\`\`${mp.qrCode}\`\`\`\n\n` +
       `⏰ Expira em 30 minutos.\n` +
       `✅ Confirmação automática!\n\n` +
-      `_Manda *cancelar* pra desistir ou *pagar crypto* pra trocar._`;
+      `_Manda *cancelar* pra desistir, *pagar crypto* pra trocar ou *gerar novo* pra novo QR._`;
 
     return { text, qrCodeBase64: mp.qrCodeBase64 };
   } catch (err) {
@@ -631,7 +631,7 @@ export function isCheckoutMessage(userId: string, text: string): boolean {
 
   // Step: awaiting_pix → user can switch method or generate new
   if (session.step === 'awaiting_pix') {
-    return lower === 'novo pix' || lower === 'pagar crypto' || lower === 'crypto';
+    return lower === 'novo pix' || lower === 'gerar novo' || lower === 'pagar crypto' || lower === 'crypto';
   }
 
   // Step: awaiting_crypto → tx hash (0x...) or switch to PIX
@@ -676,7 +676,7 @@ export async function handleCheckoutMessage(
 
   // Awaiting PIX — regenerate or switch
   if (session.step === 'awaiting_pix') {
-    if (lower === 'novo pix') {
+    if (lower === 'novo pix' || lower === 'gerar novo') {
       // Reset to choose_method then generate new PIX
       checkoutSessions.set(userId, { ...session, step: 'choose_method', createdAt: Date.now() });
       return await handlePaymentMethodChoice(userId, 'pix');

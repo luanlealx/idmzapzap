@@ -144,7 +144,7 @@ export async function incrementGroupAIUsage(userId: string): Promise<void> {
 export async function canAddAlert(userId: string, currentAlertCount: number): Promise<{ allowed: boolean; reason?: string; upgrade?: boolean }> {
   const tier = await getUserTier(userId);
   const limits = await getTierLimits(tier);
-  if (!limits.alerts_enabled) return { allowed: false, upgrade: true, reason: 'Alertas nao disponiveis.' };
+  if (!limits.alerts_enabled) return { allowed: false, upgrade: true, reason: 'Alertas não disponíveis.' };
   if (currentAlertCount >= limits.max_alerts) {
     return { allowed: false, upgrade: tier === 'free', reason: `Limite de ${limits.max_alerts} alerta(s) no plano ${tier}.` };
   }

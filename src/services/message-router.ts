@@ -657,9 +657,9 @@ async function handleIntent(
       if (incomingCode) {
         const result = await processReferral(userId, incomingCode);
         if (result.success) {
-          return `Codigo aplicado! ${result.referrerName ? `Indicado por ${result.referrerName}.` : ''}\n\nBem-vindo ao IDM! Manda *comprei 500 de btc* pra comecar.`;
+          return `Código aplicado! ${result.referrerName ? `Indicado por ${result.referrerName}.` : ''}\n\nBem-vindo ao IDM! Manda *comprei 500 de btc* pra começar.`;
         }
-        return 'Codigo de referral invalido. Confere e tenta de novo!';
+        return 'Código de referral inválido. Confere e tenta de novo!';
       }
 
       // User wants their own code
