@@ -129,11 +129,9 @@ export async function canUseGroupAI(userId: string): Promise<{ allowed: boolean;
 export async function incrementGroupAIUsage(userId: string): Promise<void> {
   const tier = await getUserTier(userId);
   if (tier === 'free') {
-    const { data } = await supabase.from('idm_users').select('group_ai_queries_week').eq('id', userId).single();
-    await supabase.from('idm_users').update({ group_ai_queries_week: (data?.group_ai_queries_week ?? 0) + 1 }).eq('id', userId);
+    await supabase.rpc('idm_increment_group_ai_week', { p_user_id: userId });
   } else {
-    const { data } = await supabase.from('idm_users').select('group_ai_queries_today').eq('id', userId).single();
-    await supabase.from('idm_users').update({ group_ai_queries_today: (data?.group_ai_queries_today ?? 0) + 1 }).eq('id', userId);
+    await supabase.rpc('idm_increment_group_ai_today', { p_user_id: userId });
   }
 }
 

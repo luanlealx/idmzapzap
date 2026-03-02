@@ -142,16 +142,16 @@ async function fetchBitcoinBalance(address: string): Promise<TokenBalance[]> {
 
     if (btcBalance === 0) return [];
 
+    // getSpotPrice already returns BRL (vs_currencies=brl)
     const spotPrice = await getSpotPrice('bitcoin');
-    const priceUsd = spotPrice?.price ?? 0;
-    const brlRate = await getUsdBrlRate();
+    const priceBrl = spotPrice?.price ?? 0;
 
     return [{
       symbol: 'BTC',
       name: 'Bitcoin',
       balance: btcBalance,
-      valueUsd: btcBalance * priceUsd,
-      valueBrl: btcBalance * priceUsd * brlRate,
+      valueUsd: 0, // Not used, kept for interface compat
+      valueBrl: btcBalance * priceBrl,
       cryptoId: 'bitcoin',
     }];
   } catch (error) {
@@ -178,16 +178,16 @@ async function fetchEthereumBalance(address: string): Promise<TokenBalance[]> {
 
     if (ethBalance < 0.0000001) return [];
 
+    // getSpotPrice already returns BRL
     const spotPrice = await getSpotPrice('ethereum');
-    const priceUsd = spotPrice?.price ?? 0;
-    const brlRate = await getUsdBrlRate();
+    const priceBrl = spotPrice?.price ?? 0;
 
     return [{
       symbol: 'ETH',
       name: 'Ethereum',
       balance: ethBalance,
-      valueUsd: priceUsd > 0 ? ethBalance * priceUsd : 0,
-      valueBrl: priceUsd > 0 ? ethBalance * priceUsd * brlRate : 0,
+      valueUsd: 0,
+      valueBrl: priceBrl > 0 ? ethBalance * priceBrl : 0,
       cryptoId: 'ethereum',
     }];
   } catch (error) {
@@ -219,16 +219,16 @@ async function fetchSolanaBalance(address: string): Promise<TokenBalance[]> {
 
     if (solBalance < 0.0000001) return [];
 
+    // getSpotPrice already returns BRL
     const spotPrice = await getSpotPrice('solana');
-    const priceUsd = spotPrice?.price ?? 0;
-    const brlRate = await getUsdBrlRate();
+    const priceBrl = spotPrice?.price ?? 0;
 
     return [{
       symbol: 'SOL',
       name: 'Solana',
       balance: solBalance,
-      valueUsd: priceUsd > 0 ? solBalance * priceUsd : 0,
-      valueBrl: priceUsd > 0 ? solBalance * priceUsd * brlRate : 0,
+      valueUsd: 0,
+      valueBrl: priceBrl > 0 ? solBalance * priceBrl : 0,
       cryptoId: 'solana',
     }];
   } catch (error) {
@@ -241,47 +241,6 @@ async function fetchSolanaBalance(address: string): Promise<TokenBalance[]> {
 // Utilidades
 // =====================================================
 
-// Cache da cotação USD→BRL
-let usdBrlCache: { rate: number; timestamp: number } | null = null;
-const USD_BRL_CACHE_TTL = 300_000; // 5 minutos
-
-/**
- * Busca cotação USD→BRL via CoinGecko (free)
- */
-async function getUsdBrlRate(): Promise<number> {
-  if (usdBrlCache && Date.now() - usdBrlCache.timestamp < USD_BRL_CACHE_TTL) {
-    return usdBrlCache.rate;
-  }
-
-  try {
-    const res = await fetch(
-      'https://api.coingecko.com/api/v3/exchange_rates'
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const data = (await res.json()) as {
-      rates: { brl?: { value: number }; usd?: { value: number } };
-    };
-
-    // exchange_rates retorna tudo relativo a BTC
-    // brl.value = quantos BRL por 1 BTC
-    // usd.value = quantos USD por 1 BTC
-    const btcBrl = data.rates?.brl?.value;
-    const btcUsd = data.rates?.usd?.value;
-
-    if (btcUsd && btcBrl) {
-      const rate = btcBrl / btcUsd;
-      usdBrlCache = { rate, timestamp: Date.now() };
-      return rate;
-    }
-
-    // Fallback: taxa fixa aproximada
-    return 5.5;
-  } catch (error) {
-    console.error('[WalletTracker] USD/BRL rate error:', error);
-    return usdBrlCache?.rate ?? 5.5;
-  }
-}
 
 /**
  * Formata endereço pra exibição (truncado)

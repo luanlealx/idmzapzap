@@ -321,8 +321,8 @@ export function buildWalletNotFound(address: string): string {
   return `❌ Wallet ${formatAddress(address)} não encontrada na sua lista.\n\n💡 Envie "minhas wallets" para ver suas wallets.`;
 }
 
-export function buildWalletLimitReached(): string {
-  return `❌ Limite de wallets atingido (máximo 5).\n\n💡 Remova uma wallet com "remover wallet 0x..." antes de adicionar outra.`;
+export function buildWalletLimitReached(limit: number = 5): string {
+  return `❌ Limite de wallets atingido (máximo ${limit}).\n\n💡 Remova uma wallet com "remover wallet 0x..." antes de adicionar outra.`;
 }
 
 export function buildInvalidAddress(): string {

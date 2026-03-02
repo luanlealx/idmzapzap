@@ -135,7 +135,7 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
         text.toLowerCase().includes('idm,');
 
       // Safe public intents that work WITHOUT @mention in groups
-      const SAFE_GROUP_INTENTS = new Set(['price_check']);
+      const SAFE_GROUP_INTENTS = new Set(['price_check', 'help']);
 
       if (!isMentioned && !SAFE_GROUP_INTENTS.has(intent.type)) {
         // Not mentioned + not a safe intent → ignore silently
@@ -191,9 +191,15 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
 
       // Public intent (price_check, help) → respond in group
       const responseText = await handleIntent(user.id, intent);
-      const tier = await getUserTier(user.id);
-      const signature = tier !== 'free' ? `\n\n— IDM Bot (${tier === 'pro' ? 'Pro' : 'Whale'})` : '\n\n— IDM Bot';
-      await sendMessageWithTyping(groupJid!, responseText + signature);
+      // Only show Pro/Whale signature when user @mentioned the bot (social status)
+      // Passive price checks don't get signature to avoid looking like spam
+      if (isMentioned) {
+        const tier = await getUserTier(user.id);
+        const signature = tier !== 'free' ? `\n\n— IDM Bot (${tier === 'pro' ? 'Pro' : 'Whale'})` : '\n\n— IDM Bot';
+        await sendMessageWithTyping(groupJid!, responseText + signature);
+      } else {
+        await sendMessageWithTyping(groupJid!, responseText);
+      }
       return;
     }
 
@@ -217,15 +223,16 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
     const responseText = await handleIntent(user.id, intent);
     const onboardingStep = await getOnboardingStep(user.id);
 
-    // After first buy → guide to "carteira"
+    // After first buy → send response + guide to "carteira"
     if (intent.type === 'buy' && onboardingStep < 1) {
       await setOnboardingStep(user.id, 1);
       await sendMessageWithTyping(phoneNumber, responseText);
+      // Small delay then nudge
       await sendMessageWithTyping(phoneNumber, response.buildOnboardingStep2());
       return;
     }
 
-    // After first portfolio view → guide to wallet tracking
+    // After first portfolio view → send card + guide to wallet tracking
     if (intent.type === 'portfolio_summary' && onboardingStep < 2) {
       await setOnboardingStep(user.id, 2);
       await sendResponseWithImages(phoneNumber, intent, user.id, responseText);

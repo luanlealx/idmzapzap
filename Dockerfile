@@ -16,6 +16,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+# @napi-rs/canvas needs these native libs
+RUN apk add --no-cache fontconfig freetype
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 

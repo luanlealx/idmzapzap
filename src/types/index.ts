@@ -88,6 +88,21 @@ export interface User {
   id: string;
   phone_number: string;
   name?: string;
+  is_active: boolean;
+  tier: 'free' | 'pro' | 'whale';
+  tier_started_at?: string;
+  tier_expires_at?: string;
+  stripe_customer_id?: string;
+  group_ai_queries_today: number;
+  group_ai_queries_reset_at?: string;
+  group_ai_queries_week: number;
+  group_ai_week_reset_at?: string;
+  streak_days: number;
+  last_active_date?: string;
+  referred_by?: string;
+  referral_code?: string;
+  referral_count: number;
+  onboarding_step: number;
   created_at: string;
   updated_at: string;
 }
