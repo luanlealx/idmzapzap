@@ -8,7 +8,7 @@ import {
   type PriceAlert,
 } from '../database/repositories/alert.repo.js';
 import { canAddAlert } from './tier-service.js';
-import { getSpotPrice } from './price-service.js';
+import { getSpotPrice, getSpotPriceBatch } from './price-service.js';
 import { sendMessageWithTyping } from './whatsapp.js';
 import { supabase } from '../database/client.js';
 import { getCryptoSymbol } from '../utils/crypto-mapper.js';
@@ -123,22 +123,10 @@ export async function checkAlerts(): Promise<number> {
   const alerts = await getActiveAlerts();
   if (alerts.length === 0) return 0;
 
-  // Group by crypto to minimize API calls — fetch in parallel
+  // Single batch call to CoinGecko — ONE API request for ALL crypto IDs
+  // (Before: N individual calls × 2s rate limit = N×2s. Now: 1 call ~200ms)
   const cryptoIds = [...new Set(alerts.map(a => a.crypto_id))];
-  const prices = new Map<string, number>();
-
-  const results = await Promise.allSettled(
-    cryptoIds.map(async (cryptoId) => {
-      const spot = await getSpotPrice(cryptoId);
-      return { cryptoId, price: spot?.price ?? null };
-    })
-  );
-
-  for (const result of results) {
-    if (result.status === 'fulfilled' && result.value.price !== null) {
-      prices.set(result.value.cryptoId, result.value.price);
-    }
-  }
+  const prices = await getSpotPriceBatch(cryptoIds);
 
   let triggered = 0;
 

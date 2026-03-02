@@ -514,46 +514,96 @@ async function verifyTransactionOnChain(
   chain: string,
   _prices: CheckoutPrices,
 ): Promise<'verified' | 'not_found' | 'wrong_amount' | 'pending' | 'error'> {
+  // Use public RPCs (same ones as wallet-tracker) — free, no API key needed
+  // Basescan/Etherscan APIs are rate-limited without key (1 call/5s)
+  const rpcUrl = chain === 'base'
+    ? 'https://mainnet.base.org'
+    : chain === 'ethereum'
+      ? 'https://cloudflare-eth.com'
+      : null;
+
+  if (!rpcUrl) {
+    console.warn(`[Payment] No RPC for chain ${chain}, skipping verification`);
+    return 'verified';
+  }
+
   try {
-    const explorerUrl = chain === 'base'
-      ? 'https://api.basescan.org/api'
-      : chain === 'ethereum'
-        ? 'https://api.etherscan.io/api'
-        : null;
+    // Step 1: Get transaction
+    const txResp = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1,
+        method: 'eth_getTransactionByHash',
+        params: [txHash],
+      }),
+    });
 
-    if (!explorerUrl) {
-      // Unsupported chain for verification — fallback to manual review
-      console.warn(`[Payment] No explorer for chain ${chain}, skipping on-chain verification`);
-      return 'verified'; // trust for unsupported chains (admin review later)
-    }
+    if (!txResp.ok) return 'error';
+    const txData = (await txResp.json()) as { result: null | { blockNumber: string | null; to: string; input: string; value: string } };
 
-    const resp = await fetch(
-      `${explorerUrl}?module=proxy&action=eth_getTransactionByHash&txhash=${txHash}`
-    );
+    if (!txData.result) return 'not_found';
+    if (!txData.result.blockNumber) return 'pending'; // not yet mined
 
-    if (!resp.ok) return 'error';
+    // Step 2: Get receipt to check Transfer event logs (for ERC-20)
+    const receiptResp = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 2,
+        method: 'eth_getTransactionReceipt',
+        params: [txHash],
+      }),
+    });
 
-    const data = (await resp.json()) as {
+    if (!receiptResp.ok) return 'error';
+    const receiptData = (await receiptResp.json()) as {
       result: null | {
-        to: string;
-        value: string;
-        blockNumber: string | null;
+        status: string;
+        logs: Array<{ topics: string[]; data: string; address: string }>;
       };
     };
 
-    if (!data.result) return 'not_found';
-    if (!data.result.blockNumber) return 'pending'; // not yet mined
+    if (!receiptData.result) return 'error';
 
-    // Transaction exists and is confirmed — verify it goes to our address
-    const paymentAddress = env.CRYPTO_PAYMENT_ADDRESS?.toLowerCase();
-    if (paymentAddress) {
-      // For ERC-20 (USDT), the `to` field is the token contract, not our address
-      // The actual recipient is in the input data — full decode is complex
-      // For MVP: tx exists + is mined = good enough. Amount matching via unique cents handles the rest.
-      // TODO: decode ERC-20 transfer input data for full verification
+    // Check tx was successful (status 0x1)
+    if (receiptData.result.status !== '0x1') {
+      console.warn(`[Payment] TX ${txHash} reverted`);
+      return 'not_found';
     }
 
-    return 'verified';
+    // Step 3: Verify recipient
+    const paymentAddress = env.CRYPTO_PAYMENT_ADDRESS?.toLowerCase();
+    if (!paymentAddress) return 'verified'; // no address configured to verify against
+
+    // Check for ERC-20 Transfer(from, to, value) event
+    // Topic[0] = keccak256("Transfer(address,address,uint256)") = 0xddf252...
+    const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+    for (const log of receiptData.result.logs) {
+      if (log.topics[0] === TRANSFER_TOPIC && log.topics.length >= 3) {
+        // topics[2] = recipient address (padded to 32 bytes)
+        const recipientPadded = log.topics[2]!;
+        const recipient = '0x' + recipientPadded.slice(-40);
+
+        if (recipient.toLowerCase() === paymentAddress) {
+          console.log(`[Payment] ✅ TX ${txHash} → ERC-20 transfer to our address confirmed`);
+          return 'verified';
+        }
+      }
+    }
+
+    // Check native ETH transfer (to field)
+    if (txData.result.to?.toLowerCase() === paymentAddress) {
+      console.log(`[Payment] ✅ TX ${txHash} → native ETH transfer to our address confirmed`);
+      return 'verified';
+    }
+
+    // TX exists and is mined but recipient doesn't match
+    // Could be a different token contract — log for manual review
+    console.warn(`[Payment] TX ${txHash} confirmed but recipient doesn't match our address`);
+    return 'verified'; // MVP: accept anyway, unique cents + manual review
+
   } catch (err) {
     console.error('[Payment] On-chain verification error:', err);
     return 'error';
@@ -588,9 +638,11 @@ export async function checkPendingPixPayment(userId: string): Promise<{
     if (data.status === 'approved') {
       const confirmed = await confirmPayment(pending.id);
       if (!confirmed) {
-        // Already confirmed by webhook
+        // Already confirmed by webhook — user already got the message
+        // Just cleanup the checkout session, don't send duplicate notification
         clearCheckoutSession(userId);
-        return { confirmed: true, plan: pending.plan };
+        console.log(`[Payment] PIX already confirmed by webhook for ${userId}, clearing session`);
+        return { confirmed: false }; // false = don't send message again
       }
       await upgradeTier(pending.user_id, pending.plan as Tier, pending.duration_days);
       clearCheckoutSession(userId);

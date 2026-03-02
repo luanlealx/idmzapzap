@@ -257,7 +257,7 @@ export async function getWalletBalance(address: string, chain: Chain, label?: st
 
 async function fetchEVMMultiChainBalance(address: string): Promise<TokenBalance[]> {
   // ===========================================
-  // Fase 1: busca TODOS os saldos (nativo + tokens) em paralelo
+  // Fase 1: busca TODOS os saldos em PARALELO (nativo + tokens × chains)
   // ===========================================
   interface RawBalance {
     symbol: string;
@@ -266,11 +266,12 @@ async function fetchEVMMultiChainBalance(address: string): Promise<TokenBalance[
     cryptoId: string;
     chain: string;
     chainLabel: string;
-    decimals: number;
   }
 
-  const rawBalances: RawBalance[] = [];
   const evmChains = ['ethereum', 'base'] as const;
+
+  // Monta todas as promises de uma vez: nativo + ERC-20 × chain
+  const fetchPromises: Promise<RawBalance | null>[] = [];
 
   for (const chainName of evmChains) {
     const rpcUrl = RPC_URLS[chainName];
@@ -278,46 +279,28 @@ async function fetchEVMMultiChainBalance(address: string): Promise<TokenBalance[
     const chainLabel = chainName === 'ethereum' ? 'ETH' : 'Base';
 
     // ETH nativo
-    try {
-      const nativeBalance = await rpcGetNativeBalance(rpcUrl, address);
-      if (nativeBalance > 0.0000001) {
-        rawBalances.push({
-          symbol: 'ETH',
-          name: `Ethereum (${chainLabel})`,
-          balance: nativeBalance,
-          cryptoId: 'ethereum',
-          chain: chainName,
-          chainLabel,
-          decimals: 18,
-        });
-      }
-    } catch (err) {
-      console.error(`[WalletTracker] Native balance error (${chainName}):`, err);
-    }
+    fetchPromises.push(
+      rpcGetNativeBalance(rpcUrl, address).then((bal) =>
+        bal > 0.0000001 ? { symbol: 'ETH', name: `Ethereum (${chainLabel})`, balance: bal, cryptoId: 'ethereum', chain: chainName, chainLabel } : null
+      ).catch(() => null)
+    );
 
-    // Tokens ERC-20
+    // Tokens ERC-20 em paralelo
     for (const token of KNOWN_TOKENS) {
       const contractAddr = token.contracts[chainName];
       if (!contractAddr) continue;
 
-      try {
-        const tokenBalance = await rpcGetTokenBalance(rpcUrl, contractAddr, address, token.decimals);
-        if (tokenBalance < 0.000001) continue;
-
-        rawBalances.push({
-          symbol: token.symbol,
-          name: `${token.name} (${chainLabel})`,
-          balance: tokenBalance,
-          cryptoId: token.cryptoId,
-          chain: chainName,
-          chainLabel,
-          decimals: token.decimals,
-        });
-      } catch (err) {
-        console.error(`[WalletTracker] Token balance error (${token.symbol} on ${chainName}):`, err);
-      }
+      fetchPromises.push(
+        rpcGetTokenBalance(rpcUrl, contractAddr, address, token.decimals).then((bal) =>
+          bal > 0.000001 ? { symbol: token.symbol, name: `${token.name} (${chainLabel})`, balance: bal, cryptoId: token.cryptoId, chain: chainName, chainLabel } : null
+        ).catch(() => null)
+      );
     }
   }
+
+  // Executa TUDO ao mesmo tempo (~200-400ms ao invés de ~4-6s sequencial)
+  const results = await Promise.all(fetchPromises);
+  const rawBalances = results.filter((r): r is RawBalance => r !== null);
 
   if (rawBalances.length === 0) return [];
 
