@@ -42,7 +42,7 @@ Exemplos:
 - "saldo 0x1234..." ou "balance" → {"type": "wallet_balance", "data": {"walletAddress": "0x1234..."}, "confidence": 0.9}
 - "meu plano" ou "qual meu tier" ou "assinatura" → {"type": "my_plan", "data": {}, "confidence": 0.9}
 - "upgrade" ou "assinar pro" ou "quero plano" → {"type": "upgrade", "data": {}, "confidence": 0.9}
-- "meu codigo" ou "indicar amigo" ou "referral" → {"type": "referral", "data": {}, "confidence": 0.9}
+- "meu código" ou "indicar amigo" ou "referral" → {"type": "referral", "data": {}, "confidence": 0.9}
 - "ajuda" ou "comandos" → {"type": "help", "data": {}, "confidence": 1.0}
 
 Apenas retorne o JSON, sem explicações adicionais.`;

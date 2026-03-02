@@ -696,12 +696,20 @@ export async function handleCheckoutMessage(
   // Awaiting PIX — regenerate or switch
   if (session.step === 'awaiting_pix') {
     if (lower === 'novo pix' || lower === 'gerar novo') {
-      // Reset to choose_method then generate new PIX
-      checkoutSessions.set(userId, { ...session, step: 'choose_method', createdAt: Date.now() });
+      // Expire old PIX payment before generating new one
+      if (session.paymentId) {
+        const { expirePaymentById } = await import('../database/repositories/payment.repo.js');
+        await expirePaymentById(session.paymentId);
+      }
+      checkoutSessions.set(userId, { ...session, step: 'choose_method', paymentId: undefined, createdAt: Date.now() });
       return await handlePaymentMethodChoice(userId, 'pix');
     }
     if (lower === 'pagar crypto' || lower === 'crypto') {
-      checkoutSessions.set(userId, { ...session, step: 'choose_method', createdAt: Date.now() });
+      if (session.paymentId) {
+        const { expirePaymentById } = await import('../database/repositories/payment.repo.js');
+        await expirePaymentById(session.paymentId);
+      }
+      checkoutSessions.set(userId, { ...session, step: 'choose_method', paymentId: undefined, createdAt: Date.now() });
       return await handlePaymentMethodChoice(userId, 'crypto');
     }
   }
@@ -713,7 +721,11 @@ export async function handleCheckoutMessage(
       return { text: result.message };
     }
     if (lower === 'pagar pix' || lower === 'pix') {
-      checkoutSessions.set(userId, { ...session, step: 'choose_method', createdAt: Date.now() });
+      if (session.paymentId) {
+        const { expirePaymentById } = await import('../database/repositories/payment.repo.js');
+        await expirePaymentById(session.paymentId);
+      }
+      checkoutSessions.set(userId, { ...session, step: 'choose_method', paymentId: undefined, createdAt: Date.now() });
       return await handlePaymentMethodChoice(userId, 'pix');
     }
   }

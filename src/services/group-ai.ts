@@ -37,7 +37,7 @@ export async function generateGroupAIResponse(userMessage: string): Promise<stri
     .trim();
 
   if (!cleanMessage || cleanMessage.length < 3) {
-    return 'Me marca com uma pergunta! Ex: "@IDM o que ta acontecendo com ETH hoje?"';
+    return 'Me marca com uma pergunta! Ex: "@IDM o que tá acontecendo com ETH hoje?"';
   }
 
   try {
@@ -50,7 +50,7 @@ export async function generateGroupAIResponse(userMessage: string): Promise<stri
 
     const content = response.content[0];
     if (!content || content.type !== 'text') {
-      return 'Nao consegui processar. Tenta de novo!';
+      return 'Não consegui processar. Tenta de novo!';
     }
 
     return content.text;
