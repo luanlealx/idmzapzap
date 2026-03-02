@@ -30,8 +30,10 @@ export interface CreateWalletInput {
  * Se já existir (mesmo user + address), retorna a existente.
  */
 export async function addWallet(input: CreateWalletInput): Promise<Wallet> {
+  const normalizedAddress = input.address.toLowerCase();
+
   // Checa se já existe
-  const existing = await findWalletByAddress(input.userId, input.address);
+  const existing = await findWalletByAddress(input.userId, normalizedAddress);
   if (existing) {
     // Reativa se estava desativada
     if (!existing.is_active) {
@@ -50,7 +52,7 @@ export async function addWallet(input: CreateWalletInput): Promise<Wallet> {
     .from('idm_wallets')
     .insert({
       user_id: input.userId,
-      address: input.address,
+      address: normalizedAddress,
       chain: input.chain,
       label: input.label,
     })

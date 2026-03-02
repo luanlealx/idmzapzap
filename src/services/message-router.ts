@@ -1,4 +1,4 @@
-import type { ParsedMessage } from '../types/index.js';
+import type { ParsedMessage, PortfolioSummary } from '../types/index.js';
 import { supabase } from '../database/client.js';
 import { env } from '../config/env.js';
 import { findOrCreateUser } from '../database/repositories/user.repo.js';
@@ -68,6 +68,7 @@ const PRIVATE_INTENTS = new Set([
   'buy', 'sell', 'portfolio_summary', 'asset_detail',
   'remove_asset', 'set_dca_goal', 'dca_progress', 'projection',
   'watch_wallet', 'list_wallets', 'remove_wallet', 'wallet_balance',
+  'set_alert', 'my_plan', 'upgrade', 'referral',
 ]);
 
 // Intents safe to answer in groups (public info)
@@ -84,28 +85,29 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
   console.log(`[Router] ${context} Message from ${maskedPhone}: "${text.slice(0, 80)}"`);
 
   try {
+    // 🔒 Rate limit check (10 msgs/min per user)
+    const rateCheck = checkRateLimit(phoneNumber);
+    if (!rateCheck.allowed) {
+      console.log(`[Router] Rate limited: ${maskedPhone} (${Math.round(rateCheck.resetIn / 1000)}s)`);
+      if (!isGroup) {
+        await sendMessageWithTyping(phoneNumber, response.buildRateLimited());
+      }
+      return;
+    }
+    recordRequest(phoneNumber);
+
     // 🔒 Whitelist check (beta mode)
     if (ADMIN_WHITELIST && !ADMIN_WHITELIST.has(phoneNumber)) {
       console.log(`[Router] Blocked: ${maskedPhone} not in whitelist`);
-      const target = isGroup ? groupJid! : phoneNumber;
-      await sendMessageWithTyping(
-        target,
-        '🔒 O IDM Carteira está em fase beta. Em breve você poderá usar!'
-      );
+      // In groups, ignore silently. In DM, explain.
+      if (!isGroup) {
+        await sendMessageWithTyping(
+          phoneNumber,
+          '🔒 O IDM Carteira está em fase beta. Em breve você poderá usar!'
+        );
+      }
       return;
     }
-
-    // Check rate limit
-    const rateLimitResult = checkRateLimit(phoneNumber);
-    if (!rateLimitResult.allowed) {
-      console.log(`[Router] Rate limited: ${phoneNumber}`);
-      const target = isGroup ? groupJid! : phoneNumber;
-      await sendMessageWithTyping(target, response.buildRateLimited());
-      return;
-    }
-
-    // Record this request for rate limiting
-    recordRequest(phoneNumber);
 
     // Get or create user
     const user = await findOrCreateUser(phoneNumber, pushName);
@@ -135,7 +137,8 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
         text.toLowerCase().includes('idm,');
 
       // Safe public intents that work WITHOUT @mention in groups
-      const SAFE_GROUP_INTENTS = new Set(['price_check', 'help']);
+      // Only price_check is safe — help could trigger on casual "ajuda"
+      const SAFE_GROUP_INTENTS = new Set(['price_check']);
 
       if (!isMentioned && !SAFE_GROUP_INTENTS.has(intent.type)) {
         // Not mentioned + not a safe intent → ignore silently
@@ -235,7 +238,8 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
     // After first portfolio view → send card + guide to wallet tracking
     if (intent.type === 'portfolio_summary' && onboardingStep < 2) {
       await setOnboardingStep(user.id, 2);
-      await sendResponseWithImages(phoneNumber, intent, user.id, responseText);
+      const summary = await getPortfolioSummary(user.id);
+      await sendResponseWithImages(phoneNumber, intent, user.id, responseText, summary);
       await sendMessageWithTyping(phoneNumber, response.buildOnboardingStep3());
       return;
     }
@@ -264,11 +268,12 @@ async function sendResponseWithImages(
   phoneNumber: string,
   intent: Awaited<ReturnType<typeof parseIntent>>,
   userId: string,
-  responseText: string
+  responseText: string,
+  cachedSummary?: PortfolioSummary
 ): Promise<void> {
   try {
     if (intent.type === 'portfolio_summary') {
-      const summary = await getPortfolioSummary(userId);
+      const summary = cachedSummary ?? await getPortfolioSummary(userId);
       if (summary.holdings.length > 0) {
         const cardImage = await generatePortfolioCard(summary);
         await sendImageWithTyping(phoneNumber, cardImage, responseText);

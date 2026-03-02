@@ -45,8 +45,8 @@ export async function getSpotPrice(cryptoIdOrAlias: string): Promise<SpotPrice |
     return {
       cryptoId,
       price: cached.price,
-      priceChange24h: 0,
-      priceChangePercent24h: 0,
+      priceChange24h: (cached.price * cached.priceChangePercent24h) / 100,
+      priceChangePercent24h: cached.priceChangePercent24h,
     };
   }
 
@@ -76,7 +76,7 @@ export async function getSpotPrice(cryptoIdOrAlias: string): Promise<SpotPrice |
     const priceChangePercent24h = priceData.brl_24h_change ?? 0;
 
     // Update cache
-    priceCache.set(cacheKey, { price, timestamp: Date.now() });
+    priceCache.set(cacheKey, { price, priceChangePercent24h, timestamp: Date.now() });
 
     return {
       cryptoId,
@@ -97,8 +97,8 @@ function getCachedOrNull(cacheKey: string, cryptoId: string): SpotPrice | null {
     return {
       cryptoId,
       price: cached.price,
-      priceChange24h: 0,
-      priceChangePercent24h: 0,
+      priceChange24h: (cached.price * cached.priceChangePercent24h) / 100,
+      priceChangePercent24h: cached.priceChangePercent24h,
     };
   }
   return null;
@@ -120,8 +120,8 @@ export async function getMultipleSpotPrices(
       results.set(cryptoId, {
         cryptoId,
         price: cached.price,
-        priceChange24h: 0,
-        priceChangePercent24h: 0,
+        priceChange24h: (cached.price * cached.priceChangePercent24h) / 100,
+        priceChangePercent24h: cached.priceChangePercent24h,
       });
     } else {
       idsToFetch.push(cryptoId);
@@ -154,7 +154,7 @@ export async function getMultipleSpotPrices(
         const price = priceData.brl;
         const priceChangePercent24h = priceData.brl_24h_change ?? 0;
 
-        priceCache.set(`spot:${cryptoId}`, { price, timestamp: Date.now() });
+        priceCache.set(`spot:${cryptoId}`, { price, priceChangePercent24h, timestamp: Date.now() });
 
         results.set(cryptoId, {
           cryptoId,

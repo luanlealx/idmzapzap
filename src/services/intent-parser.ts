@@ -10,7 +10,7 @@ const SYSTEM_PROMPT = `Você é um parser de intenções para um bot de portfoli
 
 Retorne APENAS um JSON válido no seguinte formato:
 {
-  "type": "buy|sell|portfolio_summary|asset_detail|price_check|remove_asset|set_dca_goal|dca_progress|projection|set_alert|help|unknown",
+  "type": "buy|sell|portfolio_summary|asset_detail|price_check|remove_asset|set_dca_goal|dca_progress|projection|set_alert|watch_wallet|list_wallets|remove_wallet|wallet_balance|my_plan|upgrade|referral|help|unknown",
   "data": {
     "crypto": "nome ou símbolo da cripto (se mencionado)",
     "amountFiat": número (valor em reais, se mencionado),
@@ -19,7 +19,8 @@ Retorne APENAS um JSON válido no seguinte formato:
     "targetPrice": número (preço alvo para alerta, se mencionado),
     "alertType": "above|below" (tipo de alerta, se mencionado),
     "goalAmount": número (meta de DCA em reais, se mencionado),
-    "months": número (meses para projeção, se mencionado)
+    "months": número (meses para projeção, se mencionado),
+    "walletAddress": "endereço de wallet (se mencionado)"
   },
   "confidence": número entre 0 e 1
 }
@@ -27,7 +28,7 @@ Retorne APENAS um JSON válido no seguinte formato:
 Exemplos:
 - "comprei 500 de btc" → {"type": "buy", "data": {"crypto": "btc", "amountFiat": 500}, "confidence": 0.95}
 - "vendi 0.5 eth por 5000" → {"type": "sell", "data": {"crypto": "eth", "amountCrypto": 0.5, "amountFiat": 5000}, "confidence": 0.95}
-- "carteira" ou "portfolio" → {"type": "portfolio_summary", "data": {}, "confidence": 0.9}
+- "carteira" ou "portfolio" ou "meus ativos" → {"type": "portfolio_summary", "data": {}, "confidence": 0.9}
 - "quanto tenho de btc" → {"type": "asset_detail", "data": {"crypto": "btc"}, "confidence": 0.9}
 - "preço do eth" ou "cotação sol" → {"type": "price_check", "data": {"crypto": "eth"}, "confidence": 0.95}
 - "remover btc" ou "zerar posição de eth" → {"type": "remove_asset", "data": {"crypto": "btc"}, "confidence": 0.9}
@@ -36,9 +37,12 @@ Exemplos:
 - "projeção 12 meses" → {"type": "projection", "data": {"months": 12}, "confidence": 0.9}
 - "alerta btc acima de 500000" → {"type": "set_alert", "data": {"crypto": "btc", "targetPrice": 500000, "alertType": "above"}, "confidence": 0.9}
 - "monitorar 0x1234..." ou endereço de wallet → {"type": "watch_wallet", "data": {"walletAddress": "0x1234..."}, "confidence": 0.95}
-- "minhas wallets" ou "carteiras on-chain" → {"type": "list_wallets", "data": {}, "confidence": 0.9}
+- "minhas wallets" ou "carteiras on-chain" ou "quero ver meus endereços" → {"type": "list_wallets", "data": {}, "confidence": 0.9}
 - "remover wallet 0x1234..." → {"type": "remove_wallet", "data": {"walletAddress": "0x1234..."}, "confidence": 0.9}
 - "saldo 0x1234..." ou "balance" → {"type": "wallet_balance", "data": {"walletAddress": "0x1234..."}, "confidence": 0.9}
+- "meu plano" ou "qual meu tier" ou "assinatura" → {"type": "my_plan", "data": {}, "confidence": 0.9}
+- "upgrade" ou "assinar pro" ou "quero plano" → {"type": "upgrade", "data": {}, "confidence": 0.9}
+- "meu codigo" ou "indicar amigo" ou "referral" → {"type": "referral", "data": {}, "confidence": 0.9}
 - "ajuda" ou "comandos" → {"type": "help", "data": {}, "confidence": 1.0}
 
 Apenas retorne o JSON, sem explicações adicionais.`;

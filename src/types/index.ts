@@ -189,5 +189,6 @@ export interface CryptoPrice {
 
 export interface PriceCache {
   price: number;
+  priceChangePercent24h: number;
   timestamp: number;
 }

@@ -286,12 +286,10 @@ export async function getProjection(userId: string, months: number): Promise<Pro
   const moderateAnnual = 0.15; // +15% per year
   const optimisticAnnual = 0.5; // +50% per year
 
-  // Convert to monthly rates
-  const monthlyFactor = months / 12;
-
-  const pessimisticValue = currentValue * (1 + pessimisticAnnual * monthlyFactor);
-  const moderateValue = currentValue * (1 + moderateAnnual * monthlyFactor);
-  const optimisticValue = currentValue * (1 + optimisticAnnual * monthlyFactor);
+  // Convert to monthly compound rates
+  const pessimisticValue = currentValue * Math.pow(1 + pessimisticAnnual, months / 12);
+  const moderateValue = currentValue * Math.pow(1 + moderateAnnual, months / 12);
+  const optimisticValue = currentValue * Math.pow(1 + optimisticAnnual, months / 12);
 
   return {
     months,

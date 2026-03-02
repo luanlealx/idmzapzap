@@ -129,9 +129,15 @@ export async function canUseGroupAI(userId: string): Promise<{ allowed: boolean;
 export async function incrementGroupAIUsage(userId: string): Promise<void> {
   const tier = await getUserTier(userId);
   if (tier === 'free') {
-    await supabase.rpc('idm_increment_group_ai_week', { p_user_id: userId });
+    // Increment weekly counter directly (no RPC needed)
+    const { data } = await supabase.from('idm_users').select('group_ai_queries_week').eq('id', userId).single();
+    const current = data?.group_ai_queries_week ?? 0;
+    await supabase.from('idm_users').update({ group_ai_queries_week: current + 1 }).eq('id', userId);
   } else {
-    await supabase.rpc('idm_increment_group_ai_today', { p_user_id: userId });
+    // Increment daily counter directly
+    const { data } = await supabase.from('idm_users').select('group_ai_queries_today').eq('id', userId).single();
+    const current = data?.group_ai_queries_today ?? 0;
+    await supabase.from('idm_users').update({ group_ai_queries_today: current + 1 }).eq('id', userId);
   }
 }
 
@@ -153,10 +159,13 @@ export async function updateStreak(userId: string): Promise<{ streak: number; is
   const { data } = await supabase.from('idm_users').select('streak_days, last_active_date').eq('id', userId).single();
   if (!data) return { streak: 0, isNewDay: false };
 
-  const today = new Date().toISOString().slice(0, 10);
+  // Use BRT (UTC-3) for date comparison — Brazilian users
+  const nowBrt = new Date(Date.now() - 3 * 3600000);
+  const today = nowBrt.toISOString().slice(0, 10);
   if (data.last_active_date === today) return { streak: data.streak_days ?? 0, isNewDay: false };
 
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const yesterdayBrt = new Date(nowBrt.getTime() - 86400000);
+  const yesterday = yesterdayBrt.toISOString().slice(0, 10);
   const newStreak = data.last_active_date === yesterday ? (data.streak_days ?? 0) + 1 : 1;
 
   await supabase.from('idm_users').update({ streak_days: newStreak, last_active_date: today }).eq('id', userId);
@@ -187,6 +196,14 @@ export async function processReferral(newUserId: string, referralCode: string): 
   const { data: referrer } = await supabase
     .from('idm_users').select('id, name, referral_count').eq('referral_code', referralCode.toUpperCase()).single();
   if (!referrer) return { success: false };
+
+  // Prevent self-referral
+  if (referrer.id === newUserId) return { success: false };
+
+  // Prevent double-referral (user already referred)
+  const { data: existingUser } = await supabase
+    .from('idm_users').select('referred_by').eq('id', newUserId).single();
+  if (existingUser?.referred_by) return { success: false };
 
   await supabase.from('idm_users').update({ referred_by: referralCode.toUpperCase() }).eq('id', newUserId);
   const newCount = (referrer.referral_count ?? 0) + 1;
