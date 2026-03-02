@@ -174,3 +174,92 @@ export async function sendMessageWithTyping(
 
   return sendMessage(phoneNumber, text);
 }
+
+// =====================================================
+// 🖼️ Send image with optional caption
+// =====================================================
+export async function sendImage(
+  phoneNumber: string,
+  imageBuffer: Buffer,
+  caption?: string
+): Promise<SendMessageResponse> {
+  await sleep(getHumanizedDelay());
+
+  const remoteJid = phoneNumber.includes('@')
+    ? phoneNumber
+    : `${phoneNumber}@s.whatsapp.net`;
+
+  const url = `${env.EVOLUTION_API_URL}/message/sendMedia/${env.EVOLUTION_INSTANCE}`;
+  const base64 = imageBuffer.toString('base64');
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      console.log(`[WhatsApp] Sending image to ${phoneNumber} (attempt ${attempt + 1})`);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: env.EVOLUTION_API_KEY,
+        },
+        body: JSON.stringify({
+          number: remoteJid,
+          mediaMessage: {
+            mediatype: 'image',
+            caption: caption ?? '',
+            media: base64,
+            fileName: 'portfolio.png',
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[WhatsApp] Image API error: ${response.status} - ${errorText}`);
+
+        if (response.status >= 400 && response.status < 500) {
+          return { success: false, error: `API error: ${response.status}` };
+        }
+
+        if (attempt < MAX_RETRIES - 1) {
+          await sleep(getRetryDelay(attempt));
+          continue;
+        }
+
+        return { success: false, error: `API error after ${MAX_RETRIES} attempts` };
+      }
+
+      const data = (await response.json()) as { key?: { id?: string } };
+      console.log(`[WhatsApp] Image sent successfully to ${phoneNumber}`);
+
+      return { success: true, messageId: data.key?.id };
+    } catch (error) {
+      console.error(`[WhatsApp] Error sending image (attempt ${attempt + 1}):`, error);
+
+      if (attempt < MAX_RETRIES - 1) {
+        await sleep(getRetryDelay(attempt));
+        continue;
+      }
+
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  return { success: false, error: 'Max retries exceeded' };
+}
+
+// Send image with typing indicator
+export async function sendImageWithTyping(
+  phoneNumber: string,
+  imageBuffer: Buffer,
+  caption?: string
+): Promise<SendMessageResponse> {
+  await sendTyping(phoneNumber);
+  await sleep(1500); // Simulate "sending image"
+  await stopTyping(phoneNumber);
+
+  return sendImage(phoneNumber, imageBuffer, caption);
+}

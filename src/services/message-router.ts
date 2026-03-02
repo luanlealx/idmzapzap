@@ -13,11 +13,18 @@ import {
   getProjection,
 } from './portfolio.js';
 import { getSpotPrice } from './price-service.js';
-import { sendMessageWithTyping } from './whatsapp.js';
+import { sendMessageWithTyping, sendImageWithTyping } from './whatsapp.js';
 import * as response from './response-builder.js';
 import { checkRateLimit, recordRequest } from '../utils/rate-limiter.js';
 import { detectChain, getWalletBalance, type Chain } from './wallet-tracker.js';
 import { addWallet, getUserWallets, removeWallet, countUserWallets } from '../database/repositories/wallet.repo.js';
+import {
+  generatePortfolioCard,
+  generatePriceCard,
+  generateWalletCard,
+  generateMemeCard,
+  shouldGenerateMeme,
+} from './image-generator.js';
 
 // =====================================================
 // 🔒 SECURITY: Admin whitelist
@@ -91,6 +98,55 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
 
     // Route to appropriate handler
     const responseText = await handleIntent(user.id, intent);
+
+    // 🖼️ Generate and send images for visual intents
+    try {
+      if (intent.type === 'portfolio_summary') {
+        const summary = await getPortfolioSummary(user.id);
+        if (summary.holdings.length > 0) {
+          const cardImage = await generatePortfolioCard(summary);
+          await sendImageWithTyping(phoneNumber, cardImage, responseText);
+
+          // Send meme if P/L is significant
+          if (shouldGenerateMeme(summary.total_profit_loss_percent)) {
+            const memeImage = await generateMemeCard(
+              summary.total_profit_loss_percent,
+              summary.total_current_value,
+              summary.total_profit_loss
+            );
+            await sendImageWithTyping(phoneNumber, memeImage);
+          }
+          return;
+        }
+      }
+
+      if (intent.type === 'price_check' && intent.data?.crypto) {
+        const spotPrice = await getSpotPrice(intent.data.crypto);
+        if (spotPrice) {
+          const priceImage = await generatePriceCard(spotPrice);
+          await sendImageWithTyping(phoneNumber, priceImage, responseText);
+          return;
+        }
+      }
+
+      if (intent.type === 'watch_wallet' || intent.type === 'wallet_balance') {
+        const addr = intent.data?.walletAddress;
+        if (addr) {
+          const chain = detectChain(addr);
+          if (chain) {
+            const walletSummary = await getWalletBalance(addr, chain);
+            const walletImage = await generateWalletCard(walletSummary);
+            await sendImageWithTyping(phoneNumber, walletImage, responseText);
+            return;
+          }
+        }
+      }
+    } catch (imgError) {
+      // Se falhar a geração de imagem, envia só texto
+      console.error('[Router] Image generation failed, sending text only:', imgError);
+    }
+
+    // Fallback: envia só texto
     await sendMessageWithTyping(phoneNumber, responseText);
   } catch (error) {
     console.error(`[Router] Error processing message:`, error);
