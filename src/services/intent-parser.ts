@@ -81,6 +81,16 @@ function parseQuickPatterns(text: string): ParsedIntent | null {
     return { type: 'upgrade', data: {}, confidence: 1.0, rawText: text };
   }
 
+  // Referral
+  if (/^(referral|indicar|convite|meu codigo|meu link)$/i.test(lower)) {
+    return { type: 'referral', data: {}, confidence: 1.0, rawText: text };
+  }
+
+  // Referral code received (new user sends "IDM1234ABC")
+  if (/^IDM[0-9]{4}[A-Z0-9]{3}$/i.test(lower.replace(/\s/g, ''))) {
+    return { type: 'referral', data: { referralCode: text.trim().toUpperCase() }, confidence: 0.95, rawText: text };
+  }
+
   // Wallet address detection (no LLM needed)
   if (isWalletAddress(lower)) {
     return {

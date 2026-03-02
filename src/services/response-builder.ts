@@ -198,20 +198,23 @@ BTC, ETH, SOL, BNB, ADA, XRP, DOT, AVAX, LINK, MATIC, DOGE, e mais!`;
 }
 
 export function buildOnboarding(name?: string): string {
-  const greeting = name ? `Olá, ${name}! 👋` : 'Olá! 👋';
+  const greeting = name ? `E ai, ${name}!` : 'E ai!';
 
-  return `${greeting}
+  return `${greeting} Sou o IDM — teu portfolio crypto no WhatsApp.
 
-Bem-vindo ao *IDM Portfolio Bot*! 📊
+Testa agora: manda *comprei 500 de btc*`;
+}
 
-Sou seu assistente para acompanhar investimentos em criptomoedas.
+// After first buy — guide to aha moment
+export function buildOnboardingStep2(): string {
+  return `Agora manda *carteira* pra ver teu portfolio visual.`;
+}
 
-*Como começar:*
-1️⃣ Registre uma compra: "comprei 500 de btc"
-2️⃣ Veja sua carteira: "carteira"
-3️⃣ Confira cotações: "preço do eth"
+// After first portfolio view — hook complete
+export function buildOnboardingStep3(): string {
+  return `Cola um endereco de wallet (BTC, ETH ou SOL) pra rastrear on-chain tambem.
 
-💡 Envie "ajuda" a qualquer momento para ver todos os comandos.`;
+Manda *ajuda* se quiser ver tudo que eu faco.`;
 }
 
 export function buildError(message: string): string {

@@ -1,4 +1,5 @@
 import type { ParsedMessage } from '../types/index.js';
+import { supabase } from '../database/client.js';
 import { env } from '../config/env.js';
 import { findOrCreateUser } from '../database/repositories/user.repo.js';
 import { parseIntent } from './intent-parser.js';
@@ -34,6 +35,13 @@ import {
   buildUpgradePlans,
   buildTierInfo,
   buildUpgradeMessage,
+  buildGroupUpsellNudge,
+  buildReferralInfo,
+  updateStreak,
+  getOnboardingStep,
+  setOnboardingStep,
+  getOrCreateReferralCode,
+  processReferral,
 } from './tier-service.js';
 
 // =====================================================
@@ -103,6 +111,13 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
     const user = await findOrCreateUser(phoneNumber, pushName);
     console.log(`[Router] User: ${user.id} (${maskedPhone})`);
 
+    // 🔥 Update streak (track daily engagement)
+    const { streak, isNewDay } = await updateStreak(user.id);
+    if (isNewDay && streak > 1 && !isGroup) {
+      // Don't send streak message yet — append to response later
+      console.log(`[Router] Streak: ${streak} days`);
+    }
+
     // Check if this is a new user (for onboarding)
     const isNewUser = !user.name && pushName;
 
@@ -123,12 +138,14 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
 
           if (!aiCheck.allowed) {
             if (aiCheck.upgrade) {
-              await sendMessageWithTyping(
-                groupJid!,
-                `@${pushName ?? 'Gorila'} essa feature e do plano Pro! Manda "upgrade" no meu privado pra saber mais 🔓`
-              );
+              // Short nudge in group
+              await sendMessageWithTyping(groupJid!, buildGroupUpsellNudge(pushName ?? 'Gorila'));
+              // Detailed upsell in DM
+              await sendMessageWithTyping(phoneNumber, `Curtiu a resposta no grupo? As ${aiCheck.remaining === 0 ? 'tuas perguntas da semana acabaram' : 'perguntas sao limitadas no Free'}.\n\n${buildUpgradePlans()}`);
             } else {
-              await sendMessageWithTyping(groupJid!, aiCheck.reason ?? 'Limite atingido.');
+              await sendMessageWithTyping(groupJid!, `@${pushName ?? 'Gorila'} ${aiCheck.reason ?? 'Limite atingido.'}`);
+              // Detailed in DM
+              await sendMessageWithTyping(phoneNumber, `${aiCheck.reason}\n\nPro libera 50/dia. Manda "upgrade" aqui pra ver os planos.`);
             }
             return;
           }
@@ -187,13 +204,41 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
     const target = isGroup ? groupJid! : phoneNumber;
     const responseText = await handleIntent(user.id, intent);
 
-    // In groups, send text only (no images, keep it clean)
+    // In groups, send text only with subtle signature
     if (isGroup) {
-      await sendMessageWithTyping(target, responseText);
+      const tier = await getUserTier(user.id);
+      const signature = tier !== 'free' ? `\n\n— IDM Bot (${tier === 'pro' ? 'Pro' : 'Whale'})` : '\n\n— IDM Bot';
+      await sendMessageWithTyping(target, responseText + signature);
       return;
     }
 
-    // In DM, send with images
+    // =====================================================
+    // DM: progressive onboarding + images
+    // =====================================================
+    const onboardingStep = await getOnboardingStep(user.id);
+
+    // After first buy → guide to "carteira"
+    if (intent.type === 'buy' && onboardingStep < 1) {
+      await setOnboardingStep(user.id, 1);
+      await sendMessageWithTyping(phoneNumber, responseText);
+      await sendMessageWithTyping(phoneNumber, response.buildOnboardingStep2());
+      return;
+    }
+
+    // After first portfolio view → guide to wallet tracking
+    if (intent.type === 'portfolio_summary' && onboardingStep < 2) {
+      await setOnboardingStep(user.id, 2);
+      await sendResponseWithImages(phoneNumber, intent, user.id, responseText);
+      await sendMessageWithTyping(phoneNumber, response.buildOnboardingStep3());
+      return;
+    }
+
+    // After first wallet add → onboarding complete
+    if (intent.type === 'watch_wallet' && onboardingStep < 3) {
+      await setOnboardingStep(user.id, 3);
+    }
+
+    // Send with images
     await sendResponseWithImages(phoneNumber, intent, user.id, responseText);
   } catch (error) {
     console.error(`[Router] Error processing message:`, error);
@@ -519,15 +564,37 @@ async function handleIntent(
 
     case 'my_plan': {
       const tier = await getUserTier(userId);
-      return buildTierInfo(tier);
+      const { streak } = await updateStreak(userId);
+      // Get phone to generate referral code
+      const { data: userData } = await supabase.from('idm_users').select('phone_number').eq('id', userId).single();
+      const code = userData ? await getOrCreateReferralCode(userId, userData.phone_number) : undefined;
+      return buildTierInfo(tier, streak, code);
     }
 
     case 'upgrade': {
       return buildUpgradePlans();
     }
 
+    case 'referral': {
+      const incomingCode = intent.data?.referralCode;
+
+      // User sent a referral code → process it
+      if (incomingCode) {
+        const result = await processReferral(userId, incomingCode);
+        if (result.success) {
+          return `Codigo aplicado! ${result.referrerName ? `Indicado por ${result.referrerName}.` : ''}\n\nBem-vindo ao IDM! Manda *comprei 500 de btc* pra comecar.`;
+        }
+        return 'Codigo de referral invalido. Confere e tenta de novo!';
+      }
+
+      // User wants their own code
+      const { data: userData } = await supabase.from('idm_users').select('phone_number, referral_count').eq('id', userId).single();
+      if (!userData) return response.buildError('Erro ao buscar dados.');
+      const code = await getOrCreateReferralCode(userId, userData.phone_number);
+      return buildReferralInfo(code, userData.referral_count ?? 0);
+    }
+
     case 'group_ai_question': {
-      // This should not reach here — handled in processMessage
       return response.buildUnknownIntent();
     }
 

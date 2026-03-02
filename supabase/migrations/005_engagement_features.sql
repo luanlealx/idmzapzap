@@ -1,0 +1,7 @@
+-- Migration already applied via Supabase MCP
+-- New columns on idm_users:
+-- group_ai_queries_week, group_ai_week_reset_at (free tier weekly tracking)
+-- streak_days, last_active_date (engagement streak)
+-- referred_by, referral_code, referral_count (referral system)
+-- onboarding_step (progressive onboarding)
+-- Free tier updated: group_ai_enabled=true, 3/week, 1 alert

@@ -1,18 +1,18 @@
 import { supabase } from '../database/client.js';
 
 // =====================================================
-// 🏷️ IDM Tier Service
-// Gerencia limites e permissões por plano
+// 🏷️ IDM Tier Service v2
+// Free com gostinho de Pro, streak, referral
 // =====================================================
 
 export type Tier = 'free' | 'pro' | 'whale';
 
 export interface TierLimits {
   tier: Tier;
-  max_wallets: number;       // -1 = unlimited
+  max_wallets: number;
   max_chains: string[];
   group_ai_enabled: boolean;
-  group_ai_daily_limit: number; // -1 = unlimited
+  group_ai_daily_limit: number; // free=per WEEK, pro/whale=per DAY
   alerts_enabled: boolean;
   max_alerts: number;
   weekly_report: boolean;
@@ -21,93 +21,52 @@ export interface TierLimits {
   price_monthly_brl: number;
 }
 
-// Cache dos limites (quase nunca muda)
 let limitsCache: Map<Tier, TierLimits> | null = null;
 let limitsCacheAt = 0;
-const CACHE_TTL = 5 * 60 * 1000; // 5 min
+const CACHE_TTL = 5 * 60 * 1000;
 
-// =====================================================
-// Busca limites do tier
-// =====================================================
 export async function getTierLimits(tier: Tier): Promise<TierLimits> {
   const now = Date.now();
-
   if (!limitsCache || now - limitsCacheAt > CACHE_TTL) {
-    const { data, error } = await supabase
-      .from('idm_tier_limits')
-      .select('*');
-
+    const { data, error } = await supabase.from('idm_tier_limits').select('*');
     if (error || !data) {
-      console.error('[Tier] Failed to load limits:', error);
-      // Fallback hardcoded free tier
       return {
-        tier: 'free',
-        max_wallets: 2,
-        max_chains: ['bitcoin', 'ethereum', 'solana'],
-        group_ai_enabled: false,
-        group_ai_daily_limit: 0,
-        alerts_enabled: false,
-        max_alerts: 0,
-        weekly_report: false,
-        daily_report: false,
-        export_csv: false,
+        tier: 'free', max_wallets: 2, max_chains: ['bitcoin', 'ethereum', 'solana'],
+        group_ai_enabled: true, group_ai_daily_limit: 3, alerts_enabled: true,
+        max_alerts: 1, weekly_report: false, daily_report: false, export_csv: false,
         price_monthly_brl: 0,
       };
     }
-
     limitsCache = new Map();
-    for (const row of data) {
-      limitsCache.set(row.tier as Tier, row as TierLimits);
-    }
+    for (const row of data) limitsCache.set(row.tier as Tier, row as TierLimits);
     limitsCacheAt = now;
   }
-
   return limitsCache.get(tier) ?? limitsCache.get('free')!;
 }
 
-// =====================================================
-// Busca tier do usuário
-// =====================================================
 export async function getUserTier(userId: string): Promise<Tier> {
-  const { data, error } = await supabase
-    .from('idm_users')
-    .select('tier, tier_expires_at')
-    .eq('id', userId)
-    .single();
-
-  if (error || !data) return 'free';
-
-  // Check if tier expired
+  const { data } = await supabase
+    .from('idm_users').select('tier, tier_expires_at').eq('id', userId).single();
+  if (!data) return 'free';
   if (data.tier_expires_at) {
-    const expiresAt = new Date(data.tier_expires_at);
-    if (expiresAt < new Date()) {
-      // Expired — downgrade to free
-      await supabase
-        .from('idm_users')
-        .update({ tier: 'free', tier_expires_at: null })
-        .eq('id', userId);
+    if (new Date(data.tier_expires_at) < new Date()) {
+      await supabase.from('idm_users').update({ tier: 'free', tier_expires_at: null }).eq('id', userId);
       return 'free';
     }
   }
-
   return data.tier as Tier;
 }
 
 // =====================================================
-// Checks de permissão
+// Permission checks
 // =====================================================
 
 export async function canAddWallet(userId: string, currentCount: number): Promise<{ allowed: boolean; reason?: string; upgrade?: boolean }> {
   const tier = await getUserTier(userId);
   const limits = await getTierLimits(tier);
-
   if (limits.max_wallets === -1) return { allowed: true };
   if (currentCount >= limits.max_wallets) {
-    return {
-      allowed: false,
-      upgrade: true,
-      reason: `Limite de ${limits.max_wallets} wallets no plano ${tier}. Upgrade pro Pro pra ter ${tier === 'free' ? '10' : 'ilimitadas'}.`,
-    };
+    return { allowed: false, upgrade: true, reason: `Limite de ${limits.max_wallets} wallets no plano ${tier}.` };
   }
   return { allowed: true };
 }
@@ -115,13 +74,8 @@ export async function canAddWallet(userId: string, currentCount: number): Promis
 export async function canUseChain(userId: string, chain: string): Promise<{ allowed: boolean; reason?: string; upgrade?: boolean }> {
   const tier = await getUserTier(userId);
   const limits = await getTierLimits(tier);
-
   if (!limits.max_chains.includes(chain)) {
-    return {
-      allowed: false,
-      upgrade: true,
-      reason: `Rede ${chain} disponivel no plano Pro. Upgrade pra desbloquear!`,
-    };
+    return { allowed: false, upgrade: true, reason: `Rede ${chain} disponivel no plano Pro.` };
   }
   return { allowed: true };
 }
@@ -130,150 +84,178 @@ export async function canUseGroupAI(userId: string): Promise<{ allowed: boolean;
   const tier = await getUserTier(userId);
   const limits = await getTierLimits(tier);
 
-  if (!limits.group_ai_enabled) {
-    return {
-      allowed: false,
-      upgrade: true,
-      reason: 'Respostas inteligentes no grupo sao do plano Pro. Upgrade pra desbloquear!',
-    };
-  }
+  if (!limits.group_ai_enabled) return { allowed: false, upgrade: true };
+  if (limits.group_ai_daily_limit === -1) return { allowed: true }; // whale
 
-  // Unlimited
-  if (limits.group_ai_daily_limit === -1) {
-    return { allowed: true };
-  }
-
-  // Check daily usage
   const { data } = await supabase
     .from('idm_users')
-    .select('group_ai_queries_today, group_ai_queries_reset_at')
-    .eq('id', userId)
-    .single();
-
+    .select('group_ai_queries_today, group_ai_queries_reset_at, group_ai_queries_week, group_ai_week_reset_at')
+    .eq('id', userId).single();
   if (!data) return { allowed: false, reason: 'Erro interno.' };
 
-  // Reset counter if new day
-  const resetAt = new Date(data.group_ai_queries_reset_at);
   const now = new Date();
-  let queriesToday = data.group_ai_queries_today;
 
-  if (resetAt.toDateString() !== now.toDateString()) {
-    // New day — reset
-    await supabase
-      .from('idm_users')
-      .update({ group_ai_queries_today: 0, group_ai_queries_reset_at: now.toISOString() })
-      .eq('id', userId);
-    queriesToday = 0;
+  // FREE: weekly limit
+  if (tier === 'free') {
+    let weekQ = data.group_ai_queries_week ?? 0;
+    const weekReset = new Date(data.group_ai_week_reset_at ?? 0);
+    const daysSince = Math.floor((now.getTime() - weekReset.getTime()) / 86400000);
+    if (daysSince >= 7) {
+      await supabase.from('idm_users').update({ group_ai_queries_week: 0, group_ai_week_reset_at: now.toISOString() }).eq('id', userId);
+      weekQ = 0;
+    }
+    const limit = limits.group_ai_daily_limit;
+    if (weekQ >= limit) {
+      const resetDate = new Date(weekReset); resetDate.setDate(resetDate.getDate() + 7);
+      const daysLeft = Math.max(1, Math.ceil((resetDate.getTime() - now.getTime()) / 86400000));
+      return { allowed: false, upgrade: true, remaining: 0, reason: `Suas ${limit} perguntas da semana acabaram. Reseta em ${daysLeft} dia(s).` };
+    }
+    return { allowed: true, remaining: limit - weekQ };
   }
 
-  if (queriesToday >= limits.group_ai_daily_limit) {
-    return {
-      allowed: false,
-      remaining: 0,
-      reason: `Limite de ${limits.group_ai_daily_limit} perguntas/dia no grupo atingido. Reseta amanha!`,
-    };
+  // PRO: daily limit
+  let dayQ = data.group_ai_queries_today ?? 0;
+  const dayReset = new Date(data.group_ai_queries_reset_at ?? 0);
+  if (dayReset.toDateString() !== now.toDateString()) {
+    await supabase.from('idm_users').update({ group_ai_queries_today: 0, group_ai_queries_reset_at: now.toISOString() }).eq('id', userId);
+    dayQ = 0;
   }
-
-  return { allowed: true, remaining: limits.group_ai_daily_limit - queriesToday };
+  if (dayQ >= limits.group_ai_daily_limit) {
+    return { allowed: false, remaining: 0, reason: `Limite de ${limits.group_ai_daily_limit}/dia atingido. Reseta amanha!` };
+  }
+  return { allowed: true, remaining: limits.group_ai_daily_limit - dayQ };
 }
 
 export async function incrementGroupAIUsage(userId: string): Promise<void> {
-  await supabase.rpc('increment_group_ai', { p_user_id: userId }).then(() => {});
-  // Fallback if RPC doesn't exist
-  const { data } = await supabase
-    .from('idm_users')
-    .select('group_ai_queries_today')
-    .eq('id', userId)
-    .single();
-
-  if (data) {
-    await supabase
-      .from('idm_users')
-      .update({ group_ai_queries_today: (data.group_ai_queries_today ?? 0) + 1 })
-      .eq('id', userId);
+  const tier = await getUserTier(userId);
+  if (tier === 'free') {
+    const { data } = await supabase.from('idm_users').select('group_ai_queries_week').eq('id', userId).single();
+    await supabase.from('idm_users').update({ group_ai_queries_week: (data?.group_ai_queries_week ?? 0) + 1 }).eq('id', userId);
+  } else {
+    const { data } = await supabase.from('idm_users').select('group_ai_queries_today').eq('id', userId).single();
+    await supabase.from('idm_users').update({ group_ai_queries_today: (data?.group_ai_queries_today ?? 0) + 1 }).eq('id', userId);
   }
 }
 
 export async function canAddAlert(userId: string, currentAlertCount: number): Promise<{ allowed: boolean; reason?: string; upgrade?: boolean }> {
   const tier = await getUserTier(userId);
   const limits = await getTierLimits(tier);
-
-  if (!limits.alerts_enabled) {
-    return {
-      allowed: false,
-      upgrade: true,
-      reason: 'Alertas de preco sao do plano Pro. Upgrade pra receber notificacoes!',
-    };
-  }
-
+  if (!limits.alerts_enabled) return { allowed: false, upgrade: true, reason: 'Alertas nao disponiveis.' };
   if (currentAlertCount >= limits.max_alerts) {
-    return {
-      allowed: false,
-      reason: `Limite de ${limits.max_alerts} alertas no plano ${tier}.`,
-    };
+    return { allowed: false, upgrade: tier === 'free', reason: `Limite de ${limits.max_alerts} alerta(s) no plano ${tier}.` };
   }
-
   return { allowed: true };
 }
 
 // =====================================================
-// Upgrade/Downgrade
+// 🔥 Streak
+// =====================================================
+
+export async function updateStreak(userId: string): Promise<{ streak: number; isNewDay: boolean }> {
+  const { data } = await supabase.from('idm_users').select('streak_days, last_active_date').eq('id', userId).single();
+  if (!data) return { streak: 0, isNewDay: false };
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (data.last_active_date === today) return { streak: data.streak_days ?? 0, isNewDay: false };
+
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const newStreak = data.last_active_date === yesterday ? (data.streak_days ?? 0) + 1 : 1;
+
+  await supabase.from('idm_users').update({ streak_days: newStreak, last_active_date: today }).eq('id', userId);
+  return { streak: newStreak, isNewDay: true };
+}
+
+// =====================================================
+// 🔗 Referral
+// =====================================================
+
+function generateReferralCode(phoneNumber: string): string {
+  const suffix = phoneNumber.slice(-4);
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let rand = '';
+  for (let i = 0; i < 3; i++) rand += chars[Math.floor(Math.random() * chars.length)];
+  return `IDM${suffix}${rand}`;
+}
+
+export async function getOrCreateReferralCode(userId: string, phoneNumber: string): Promise<string> {
+  const { data } = await supabase.from('idm_users').select('referral_code').eq('id', userId).single();
+  if (data?.referral_code) return data.referral_code;
+  const code = generateReferralCode(phoneNumber);
+  await supabase.from('idm_users').update({ referral_code: code }).eq('id', userId);
+  return code;
+}
+
+export async function processReferral(newUserId: string, referralCode: string): Promise<{ success: boolean; referrerName?: string }> {
+  const { data: referrer } = await supabase
+    .from('idm_users').select('id, name, referral_count').eq('referral_code', referralCode.toUpperCase()).single();
+  if (!referrer) return { success: false };
+
+  await supabase.from('idm_users').update({ referred_by: referralCode.toUpperCase() }).eq('id', newUserId);
+  const newCount = (referrer.referral_count ?? 0) + 1;
+  await supabase.from('idm_users').update({ referral_count: newCount }).eq('id', referrer.id);
+
+  // Every 3 referrals = 7 days Pro
+  if (newCount % 3 === 0) {
+    await supabase.from('idm_users').update({
+      tier: 'pro', tier_started_at: new Date().toISOString(),
+      tier_expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
+    }).eq('id', referrer.id);
+  }
+  return { success: true, referrerName: referrer.name ?? undefined };
+}
+
+// =====================================================
+// 📋 Onboarding
+// =====================================================
+
+export async function getOnboardingStep(userId: string): Promise<number> {
+  const { data } = await supabase.from('idm_users').select('onboarding_step').eq('id', userId).single();
+  return data?.onboarding_step ?? 0;
+}
+
+export async function setOnboardingStep(userId: string, step: number): Promise<void> {
+  await supabase.from('idm_users').update({ onboarding_step: step }).eq('id', userId);
+}
+
+// =====================================================
+// Upgrade
 // =====================================================
 
 export async function upgradeTier(userId: string, newTier: Tier, durationDays?: number): Promise<void> {
-  const expiresAt = durationDays
-    ? new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
-    : null;
-
-  await supabase
-    .from('idm_users')
-    .update({
-      tier: newTier,
-      tier_started_at: new Date().toISOString(),
-      tier_expires_at: expiresAt,
-    })
-    .eq('id', userId);
+  const expiresAt = durationDays ? new Date(Date.now() + durationDays * 86400000).toISOString() : null;
+  await supabase.from('idm_users').update({
+    tier: newTier, tier_started_at: new Date().toISOString(), tier_expires_at: expiresAt,
+  }).eq('id', userId);
 }
 
 // =====================================================
-// Mensagens de upsell (usadas nas respostas)
+// Messages
 // =====================================================
 
 export function buildUpgradeMessage(feature: string): string {
-  return `\n\n🔓 *${feature}* — disponivel no plano Pro (R$19,90/mês)\nManda "upgrade" pra saber mais.`;
+  return `\n\n🔓 *${feature}* — Pro (R$19,90/mes)\nManda "upgrade" pra ver os planos.`;
 }
 
-export function buildTierInfo(tier: Tier): string {
+export function buildGroupUpsellNudge(pushName: string): string {
+  return `@${pushName} manda "upgrade" no meu privado pra desbloquear mais 🔓`;
+}
+
+export function buildTierInfo(tier: Tier, streak?: number, referralCode?: string): string {
+  const s = streak && streak > 1 ? `\n🔥 Streak: ${streak} dias seguidos` : '';
+  const r = referralCode ? `\n🔗 Teu codigo: *${referralCode}*\nConvida 3 amigos = 1 semana Pro gratis!` : '';
+
   switch (tier) {
-    case 'free':
-      return '📋 Teu plano: Free\n• 2 wallets on-chain\n• 3 redes (BTC, ETH, SOL)\n• Cotacoes ilimitadas\n• Registro de compra/venda\n\nManda "upgrade" pra ver os planos.';
-    case 'pro':
-      return '⭐ Teu plano: Pro\n• 10 wallets on-chain\n• 9 redes\n• Bot inteligente no grupo (50/dia)\n• Alertas de preco\n• Relatorio semanal';
-    case 'whale':
-      return '🐋 Teu plano: Whale\n• Wallets ilimitadas\n• Todas as redes\n• Bot analista no grupo (ilimitado)\n• Alertas de preco (50)\n• Relatorio diario\n• Export CSV';
+    case 'free': return `📋 *Teu plano: Free*\n• 2 wallets (BTC, ETH, SOL)\n• 3 perguntas/semana no grupo\n• 1 alerta de preco\n• Cotacoes ilimitadas${s}${r}\n\nManda "upgrade" pra ver os planos.`;
+    case 'pro': return `⭐ *Teu plano: Pro*\n• 10 wallets (9 redes)\n• 50 perguntas/dia no grupo\n• 10 alertas + relatorio semanal${s}${r}`;
+    case 'whale': return `🐋 *Teu plano: Whale*\n• Wallets ilimitadas (9 redes)\n• Perguntas ilimitadas no grupo\n• 50 alertas + relatorio diario + CSV${s}${r}`;
   }
 }
 
 export function buildUpgradePlans(): string {
-  return `🔓 *Planos IDM Portfolio*
+  return `🔓 *Planos IDM*\n\n*Free* — R$0\n• 2 wallets (BTC, ETH, SOL)\n• 3 perguntas/semana no grupo\n• 1 alerta de preco\n\n*Pro* — R$19,90/mes\n• 10 wallets (9 redes)\n• 50 perguntas/dia no grupo\n• 10 alertas + relatorio semanal\n\n*Whale* — R$49,90/mes\n• Wallets ilimitadas\n• Perguntas ilimitadas no grupo\n• 50 alertas + relatorio diario + CSV\n\nManda "assinar pro" ou "assinar whale".`;
+}
 
-*Free* — R$0
-• 2 wallets on-chain (BTC, ETH, SOL)
-• Registro de compra/venda
-• Cotacoes em tempo real
-
-*Pro* — R$19,90/mes
-• 10 wallets (9 redes)
-• Bot responde perguntas no grupo
-• Alertas de preco (10)
-• Relatorio semanal
-
-*Whale* — R$49,90/mes
-• Wallets ilimitadas (9 redes)
-• Bot analista no grupo (ilimitado)
-• Alertas de preco (50)
-• Relatorio diario
-• Export CSV
-
-Manda "assinar pro" ou "assinar whale" pra continuar.`;
+export function buildReferralInfo(code: string, count: number): string {
+  const remaining = 3 - (count % 3);
+  return `🔗 *Referral*\n\nCodigo: *${code}*\n\n📊 ${count} convidados (${3 - remaining}/3 pro proximo Pro gratis)\nFaltam ${remaining} pra ganhar 1 semana Pro!`;
 }

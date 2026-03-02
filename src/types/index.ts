@@ -60,6 +60,7 @@ export type IntentType =
   | 'help'
   | 'my_plan'
   | 'upgrade'
+  | 'referral'
   | 'group_ai_question'
   | 'unknown';
 
@@ -76,6 +77,7 @@ export interface ParsedIntent {
     months?: number;
     walletAddress?: string;
     walletLabel?: string;
+    referralCode?: string;
   };
   confidence: number;
   rawText: string;
