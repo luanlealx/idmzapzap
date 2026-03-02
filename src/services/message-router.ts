@@ -164,7 +164,7 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
         if (!aiCheck.allowed) {
           if (aiCheck.upgrade) {
             await sendMessageWithTyping(groupJid!, buildGroupUpsellNudge(pushName ?? 'Gorila'));
-            await sendMessageWithTyping(phoneNumber, `Curtiu? As ${aiCheck.remaining === 0 ? 'tuas perguntas da semana acabaram' : 'perguntas sao limitadas no Free'}.\n\n${buildUpgradePlans()}`);
+            await sendMessageWithTyping(phoneNumber, `Curtiu? As ${aiCheck.remaining === 0 ? 'tuas perguntas da semana acabaram' : 'perguntas são limitadas no Free'}.\n\n${buildUpgradePlans()}`);
           } else {
             await sendMessageWithTyping(groupJid!, `@${pushName ?? 'Gorila'} ${aiCheck.reason ?? 'Limite atingido.'}`);
             await sendMessageWithTyping(phoneNumber, `${aiCheck.reason}\n\nPro libera 50/dia. Manda "upgrade" aqui.`);
