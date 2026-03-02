@@ -90,6 +90,66 @@ export async function getSpotPrice(cryptoIdOrAlias: string): Promise<SpotPrice |
   }
 }
 
+/**
+ * Busca preços de múltiplas cryptos numa única chamada CoinGecko.
+ * Muito mais eficiente que chamar getSpotPrice() pra cada uma.
+ * Retorna Map<cryptoId, preçoBRL>.
+ */
+export async function getSpotPriceBatch(cryptoIds: string[]): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  const idsToFetch: string[] = [];
+
+  // Resolve aliases e checa cache
+  for (const rawId of cryptoIds) {
+    const cryptoId = resolveCryptoId(rawId) ?? rawId;
+    const cacheKey = `spot:${cryptoId}`;
+    const cached = priceCache.get(cacheKey);
+
+    if (cached && Date.now() - cached.timestamp < SPOT_PRICE_TTL) {
+      result.set(cryptoId, cached.price);
+    } else if (!idsToFetch.includes(cryptoId)) {
+      idsToFetch.push(cryptoId);
+    }
+  }
+
+  // Se tudo tava em cache, retorna direto
+  if (idsToFetch.length === 0) return result;
+
+  try {
+    // Uma única chamada CoinGecko com todos os IDs
+    const idsParam = idsToFetch.join(',');
+    const url = `${env.COINGECKO_API_URL}/simple/price?ids=${idsParam}&vs_currencies=brl&include_24hr_change=true`;
+    console.log(`[PriceService] Batch fetching prices for: ${idsParam}`);
+
+    const response = await rateLimitedFetch(url);
+    if (!response.ok) {
+      console.error(`[PriceService] CoinGecko batch error: ${response.status}`);
+      // Retorna o que tiver em cache
+      return result;
+    }
+
+    const data = (await response.json()) as Record<
+      string,
+      { brl: number; brl_24h_change?: number }
+    >;
+
+    for (const cryptoId of idsToFetch) {
+      const priceData = data[cryptoId];
+      if (priceData) {
+        const price = priceData.brl;
+        const priceChangePercent24h = priceData.brl_24h_change ?? 0;
+        // Atualiza cache individual
+        priceCache.set(`spot:${cryptoId}`, { price, priceChangePercent24h, timestamp: Date.now() });
+        result.set(cryptoId, price);
+      }
+    }
+  } catch (error) {
+    console.error('[PriceService] Batch price error:', error);
+  }
+
+  return result;
+}
+
 function getCachedOrNull(cacheKey: string, cryptoId: string): SpotPrice | null {
   const cached = priceCache.get(cacheKey);
   if (cached) {
