@@ -109,6 +109,22 @@ export async function findPaymentByMpId(mpPaymentId: string): Promise<Payment | 
   return data as Payment | null;
 }
 
+export async function findPaymentByTxHash(txHash: string): Promise<Payment | null> {
+  const { data, error } = await supabase
+    .from('idm_payments')
+    .select('*')
+    .eq('crypto_tx_hash', txHash)
+    .eq('status', 'confirmed')
+    .maybeSingle();
+
+  if (error) {
+    console.error('[PaymentRepo] Error finding by tx hash:', error);
+    return null;
+  }
+
+  return data as Payment | null;
+}
+
 export async function confirmPayment(paymentId: string, txHash?: string): Promise<Payment | null> {
   const updateData: Record<string, unknown> = {
     status: 'confirmed',
@@ -116,19 +132,40 @@ export async function confirmPayment(paymentId: string, txHash?: string): Promis
   };
   if (txHash) updateData['crypto_tx_hash'] = txHash;
 
+  // 🔒 Only confirm if still pending (idempotent — prevents double-confirm race)
   const { data, error } = await supabase
     .from('idm_payments')
     .update(updateData)
     .eq('id', paymentId)
+    .eq('status', 'pending')
     .select()
     .single();
 
   if (error) {
+    if (error.code === 'PGRST116') {
+      // No matching row = already confirmed or expired
+      console.log(`[PaymentRepo] Payment ${paymentId} already processed, skipping`);
+      return null;
+    }
     console.error('[PaymentRepo] Error confirming payment:', error);
     return null;
   }
 
   return data as Payment;
+}
+
+export async function cancelPayment(paymentId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('idm_payments')
+    .update({ status: 'expired' })
+    .eq('id', paymentId)
+    .eq('status', 'pending');
+
+  if (error) {
+    console.error('[PaymentRepo] Error cancelling payment:', error);
+    return false;
+  }
+  return true;
 }
 
 export async function expireStalePendingPayments(): Promise<number> {
@@ -145,6 +182,14 @@ export async function expireStalePendingPayments(): Promise<number> {
   }
 
   return data?.length ?? 0;
+}
+
+export async function expirePaymentById(paymentId: string): Promise<void> {
+  await supabase
+    .from('idm_payments')
+    .update({ status: 'expired' })
+    .eq('id', paymentId)
+    .eq('status', 'pending');
 }
 
 export async function getUserPaymentHistory(userId: string): Promise<Payment[]> {

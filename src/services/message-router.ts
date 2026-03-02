@@ -68,6 +68,9 @@ const ADMIN_WHITELIST: Set<string> | null = (() => {
 const MAX_TRANSACTION_FIAT = 1_000_000; // R$ 1M max per transaction
 const MAX_DCA_GOAL = 10_000_000; // R$ 10M max DCA goal
 
+// PIX poll throttle: avoid calling MP API on every single message
+const pixPollTimestamps = new Map<string, number>();
+
 // =====================================================
 // 🔒 PRIVACY: Intents that should only be answered in DM
 // =====================================================
@@ -230,17 +233,27 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
       return;
     }
 
-    // 🛒 PIX POLL: if user has pending PIX and sends any message, check if it was paid
+    // 🛒 PIX POLL: if user has pending PIX, check if paid (throttled: max once per 30s)
     if (!isGroup) {
       const session = getCheckoutSession(user.id);
       if (session?.step === 'awaiting_pix') {
-        const pixCheck = await checkPendingPixPayment(user.id);
-        if (pixCheck.confirmed) {
-          const planName = pixCheck.plan === 'whale' ? 'Whale' : 'Pro';
-          await sendMessageWithTyping(phoneNumber,
-            `✅ *PIX confirmado!*\n\nPlano *${planName}* ativado por 30 dias.\n\nManda *meu plano* pra ver tudo que desbloqueou.`
-          );
-          return;
+        const now = Date.now();
+        const lastPoll = pixPollTimestamps.get(user.id) ?? 0;
+        if (now - lastPoll > 30_000) { // 30s throttle
+          pixPollTimestamps.set(user.id, now);
+          const pixCheck = await checkPendingPixPayment(user.id);
+          if (pixCheck.confirmed) {
+            pixPollTimestamps.delete(user.id);
+            const planName = pixCheck.plan === 'whale' ? 'Whale' : 'Pro';
+            await sendMessageWithTyping(phoneNumber,
+              `✅ *PIX confirmado!*\n\nPlano *${planName}* ativado por 30 dias.\n\nManda *meu plano* pra ver tudo que desbloqueou.`
+            );
+            return;
+          }
+        }
+        // Hint: user sent a non-checkout msg while awaiting PIX
+        if (intent.type !== 'upgrade' && intent.type !== 'my_plan') {
+          // Don't block normal usage, just append a subtle reminder after response
         }
       }
     }
@@ -290,9 +303,11 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
     console.error(`[Router] Error processing message:`, error);
 
     const target = isGroup ? groupJid! : phoneNumber;
-    const errorMessage =
-      error instanceof Error ? error.message : 'Erro interno. Tente novamente.';
-    await sendMessageWithTyping(target, response.buildError(errorMessage));
+    // 🔒 Never expose internal error details to user
+    const userMessage = error instanceof Error && error.message.length < 100 && !error.message.includes('SQL') && !error.message.includes('supabase')
+      ? error.message
+      : 'Algo deu errado. Tenta de novo em instantes.';
+    await sendMessageWithTyping(target, response.buildError(userMessage));
   }
 }
 

@@ -105,6 +105,11 @@ function parseQuickPatterns(text: string): ParsedIntent | null {
     return { type: 'referral', data: {}, confidence: 1.0, rawText: text };
   }
 
+  // Alert listing
+  if (/^(meus alertas|alertas|listar alertas|ver alertas)$/i.test(lower)) {
+    return { type: 'set_alert', data: {}, confidence: 1.0, rawText: text };
+  }
+
   // Referral code received (new user sends "IDM1234ABC")
   if (/^IDM[0-9]{4}[A-Z0-9]{3}$/i.test(lower.replace(/\s/g, ''))) {
     return { type: 'referral', data: { referralCode: text.trim().toUpperCase() }, confidence: 0.95, rawText: text };

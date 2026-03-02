@@ -170,31 +170,41 @@ export function buildProjection(projection: Projection, currentValue: number): s
 }
 
 export function buildHelp(): string {
-  return `📚 *Comandos disponíveis*
+  return `📚 *Comandos IDM*
 
-*Registrar transações:*
+*Transações:*
 • "comprei 500 de btc"
 • "vendi 0.5 eth por 5000"
 
-*Ver carteira:*
-• "carteira" - resumo geral
-• "quanto tenho de btc" - detalhe
+*Carteira:*
+• "carteira" — resumo geral
+• "quanto tenho de btc" — detalhe
+• "remover btc" — zera posição
 
 *Cotações:*
 • "preço do eth"
 
-*Gerenciar ativos:*
-• "remover btc" - zera posição
+*Alertas de preço:*
+• "alerta btc acima de 500000"
+• "meus alertas" — listar ativos
+• "remover alerta 1" — cancelar
+
+*Wallets on-chain:*
+• Cole um endereço BTC/ETH/SOL
+• "minhas wallets"
 
 *Metas DCA:*
 • "meta 10000 em btc"
 • "progresso"
 
-*Projeções:*
-• "projeção 12 meses"
+*Plano e assinatura:*
+• "meu plano" — ver tier e streak
+• "upgrade" — ver planos Pro e Whale
+• "assinar pro" / "assinar whale"
+• "cancelar" — cancelar pagamento pendente
 
 *Criptos suportadas:*
-BTC, ETH, SOL, BNB, ADA, XRP, DOT, AVAX, LINK, MATIC, DOGE, e mais!`;
+BTC, ETH, SOL, BNB, ADA, XRP, DOT, AVAX, LINK, MATIC, DOGE e mais!`;
 }
 
 export function buildOnboarding(name?: string): string {
@@ -212,9 +222,9 @@ export function buildOnboardingStep2(): string {
 
 // After first portfolio view — hook complete
 export function buildOnboardingStep3(): string {
-  return `Cola um endereco de wallet (BTC, ETH ou SOL) pra rastrear on-chain tambem.
+  return `Cola um endereço de wallet (BTC, ETH ou SOL) pra rastrear on-chain também.
 
-Manda *ajuda* se quiser ver tudo que eu faco.`;
+Manda *ajuda* se quiser ver tudo que eu faço.`;
 }
 
 export function buildError(message: string): string {

@@ -99,13 +99,21 @@ export async function checkAlerts(): Promise<number> {
   const alerts = await getActiveAlerts();
   if (alerts.length === 0) return 0;
 
-  // Group by crypto to minimize API calls
+  // Group by crypto to minimize API calls — fetch in parallel
   const cryptoIds = [...new Set(alerts.map(a => a.crypto_id))];
   const prices = new Map<string, number>();
 
-  for (const cryptoId of cryptoIds) {
-    const spot = await getSpotPrice(cryptoId);
-    if (spot) prices.set(cryptoId, spot.price);
+  const results = await Promise.allSettled(
+    cryptoIds.map(async (cryptoId) => {
+      const spot = await getSpotPrice(cryptoId);
+      return { cryptoId, price: spot?.price ?? null };
+    })
+  );
+
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value.price !== null) {
+      prices.set(result.value.cryptoId, result.value.price);
+    }
   }
 
   let triggered = 0;

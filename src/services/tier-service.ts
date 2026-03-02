@@ -75,7 +75,7 @@ export async function canUseChain(userId: string, chain: string): Promise<{ allo
   const tier = await getUserTier(userId);
   const limits = await getTierLimits(tier);
   if (!limits.max_chains.includes(chain)) {
-    return { allowed: false, upgrade: true, reason: `Rede ${chain} disponivel no plano Pro.` };
+    return { allowed: false, upgrade: true, reason: `Rede ${chain} disponível no plano Pro.` };
   }
   return { allowed: true };
 }
@@ -248,7 +248,7 @@ export async function upgradeTier(userId: string, newTier: Tier, durationDays?: 
 // =====================================================
 
 export function buildUpgradeMessage(feature: string): string {
-  return `\n\n🔓 *${feature}* — Pro (R$19,90/mes)\nManda "upgrade" pra ver os planos.`;
+  return `\n\n🔓 *${feature}* — Pro (R$19,90/mês)\nManda "upgrade" pra ver os planos.`;
 }
 
 export function buildGroupUpsellNudge(pushName: string): string {
@@ -257,20 +257,20 @@ export function buildGroupUpsellNudge(pushName: string): string {
 
 export function buildTierInfo(tier: Tier, streak?: number, referralCode?: string): string {
   const s = streak && streak > 1 ? `\n🔥 Streak: ${streak} dias seguidos` : '';
-  const r = referralCode ? `\n🔗 Teu codigo: *${referralCode}*\nConvida 3 amigos = 1 semana Pro gratis!` : '';
+  const r = referralCode ? `\n🔗 Teu código: *${referralCode}*\nConvida 3 amigos = 1 semana Pro grátis!` : '';
 
   switch (tier) {
-    case 'free': return `📋 *Teu plano: Free*\n• 2 wallets (BTC, ETH, SOL)\n• 3 perguntas/semana no grupo\n• 1 alerta de preco\n• Cotacoes ilimitadas${s}${r}\n\nManda "upgrade" pra ver os planos.`;
-    case 'pro': return `⭐ *Teu plano: Pro*\n• 10 wallets (9 redes)\n• 50 perguntas/dia no grupo\n• 10 alertas + relatorio semanal${s}${r}`;
-    case 'whale': return `🐋 *Teu plano: Whale*\n• Wallets ilimitadas (9 redes)\n• Perguntas ilimitadas no grupo\n• 50 alertas + relatorio diario + CSV${s}${r}`;
+    case 'free': return `📋 *Teu plano: Free*\n• 2 wallets (BTC, ETH, SOL)\n• 3 perguntas/semana no grupo\n• 1 alerta de preço\n• Cotações ilimitadas${s}${r}\n\nManda "upgrade" pra ver os planos.`;
+    case 'pro': return `⭐ *Teu plano: Pro*\n• 10 wallets (9 redes)\n• 50 perguntas/dia no grupo\n• 10 alertas + relatório semanal${s}${r}`;
+    case 'whale': return `🐋 *Teu plano: Whale*\n• Wallets ilimitadas (9 redes)\n• Perguntas ilimitadas no grupo\n• 50 alertas + relatório diário + CSV${s}${r}`;
   }
 }
 
 export function buildUpgradePlans(): string {
-  return `🔓 *Planos IDM*\n\n*Free* — R$0\n• 2 wallets (BTC, ETH, SOL)\n• 3 perguntas/semana no grupo\n• 1 alerta de preco\n\n*Pro* — R$19,90/mes\n• 10 wallets (9 redes)\n• 50 perguntas/dia no grupo\n• 10 alertas + relatorio semanal\n\n*Whale* — R$49,90/mes\n• Wallets ilimitadas\n• Perguntas ilimitadas no grupo\n• 50 alertas + relatorio diario + CSV\n\nManda "assinar pro" ou "assinar whale".`;
+  return `🔓 *Planos IDM*\n\n*Free* — R$0\n• 2 wallets (BTC, ETH, SOL)\n• 3 perguntas/semana no grupo\n• 1 alerta de preço\n\n*Pro* — R$19,90/mês\n• 10 wallets (9 redes)\n• 50 perguntas/dia no grupo\n• 10 alertas + relatório semanal\n\n*Whale* — R$49,90/mês\n• Wallets ilimitadas\n• Perguntas ilimitadas no grupo\n• 50 alertas + relatório diário + CSV\n\n💡 Paga em *crypto (USDT)* e ganha *2% de desconto*!\n\nManda "assinar pro" ou "assinar whale".`;
 }
 
 export function buildReferralInfo(code: string, count: number): string {
   const remaining = 3 - (count % 3);
-  return `🔗 *Referral*\n\nCodigo: *${code}*\n\n📊 ${count} convidados (${3 - remaining}/3 pro proximo Pro gratis)\nFaltam ${remaining} pra ganhar 1 semana Pro!`;
+  return `🔗 *Referral*\n\nCódigo: *${code}*\n\n📊 ${count} convidados (${3 - remaining}/3 pro próximo Pro grátis)\nFaltam ${remaining} pra ganhar 1 semana Pro!`;
 }
