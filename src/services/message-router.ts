@@ -125,54 +125,84 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
     const intent = await parseIntent(text);
     console.log(`[Router] Intent: ${intent.type} (confidence: ${intent.confidence})`);
 
-    // Handle unknown intent
-    if (intent.type === 'unknown') {
-      if (isGroup) {
-        // Check if bot was @mentioned — trigger Group AI (Pro/Whale)
-        const isMentioned = text.toLowerCase().includes('@idm') ||
-          text.toLowerCase().includes('idm bot') ||
-          text.toLowerCase().includes('idm,');
+    // =====================================================
+    // 🏟️ GROUP GATE: only respond if @mentioned or safe public intent
+    // In DM, everything passes through naturally
+    // =====================================================
+    if (isGroup) {
+      const isMentioned = text.toLowerCase().includes('@idm') ||
+        text.toLowerCase().includes('idm bot') ||
+        text.toLowerCase().includes('idm,');
 
-        if (isMentioned) {
-          const aiCheck = await canUseGroupAI(user.id);
+      // Safe public intents that work WITHOUT @mention in groups
+      const SAFE_GROUP_INTENTS = new Set(['price_check']);
 
-          if (!aiCheck.allowed) {
-            if (aiCheck.upgrade) {
-              // Short nudge in group
-              await sendMessageWithTyping(groupJid!, buildGroupUpsellNudge(pushName ?? 'Gorila'));
-              // Detailed upsell in DM
-              await sendMessageWithTyping(phoneNumber, `Curtiu a resposta no grupo? As ${aiCheck.remaining === 0 ? 'tuas perguntas da semana acabaram' : 'perguntas sao limitadas no Free'}.\n\n${buildUpgradePlans()}`);
-            } else {
-              await sendMessageWithTyping(groupJid!, `@${pushName ?? 'Gorila'} ${aiCheck.reason ?? 'Limite atingido.'}`);
-              // Detailed in DM
-              await sendMessageWithTyping(phoneNumber, `${aiCheck.reason}\n\nPro libera 50/dia. Manda "upgrade" aqui pra ver os planos.`);
-            }
-            return;
-          }
+      if (!isMentioned && !SAFE_GROUP_INTENTS.has(intent.type)) {
+        // Not mentioned + not a safe intent → ignore silently
+        // "carteira" without @IDM in group = probably not for us
+        console.log(`[Router] Group: ignoring "${text.slice(0, 40)}" (not mentioned)`);
+        return;
+      }
 
-          // Has access — generate smart response with Sonnet
-          try {
-            const { generateGroupAIResponse } = await import('./group-ai.js');
-            const aiResponse = await generateGroupAIResponse(text);
-            await incrementGroupAIUsage(user.id);
+      // @mentioned with unknown intent → Group AI
+      if (isMentioned && intent.type === 'unknown') {
+        const aiCheck = await canUseGroupAI(user.id);
 
-            const remaining = aiCheck.remaining;
-            const footer = remaining !== undefined && remaining < 10
-              ? `\n\n_${remaining} perguntas restantes hoje_`
-              : '';
-
-            await sendMessageWithTyping(groupJid!, aiResponse + footer);
-          } catch (aiError) {
-            console.error('[Router] Group AI failed:', aiError);
-            await sendMessageWithTyping(groupJid!, 'Eita, deu ruim aqui. Tenta de novo!');
+        if (!aiCheck.allowed) {
+          if (aiCheck.upgrade) {
+            await sendMessageWithTyping(groupJid!, buildGroupUpsellNudge(pushName ?? 'Gorila'));
+            await sendMessageWithTyping(phoneNumber, `Curtiu? As ${aiCheck.remaining === 0 ? 'tuas perguntas da semana acabaram' : 'perguntas sao limitadas no Free'}.\n\n${buildUpgradePlans()}`);
+          } else {
+            await sendMessageWithTyping(groupJid!, `@${pushName ?? 'Gorila'} ${aiCheck.reason ?? 'Limite atingido.'}`);
+            await sendMessageWithTyping(phoneNumber, `${aiCheck.reason}\n\nPro libera 50/dia. Manda "upgrade" aqui.`);
           }
           return;
         }
 
-        // Not mentioned in group — ignore silently
+        try {
+          const { generateGroupAIResponse } = await import('./group-ai.js');
+          const aiResponse = await generateGroupAIResponse(text);
+          await incrementGroupAIUsage(user.id);
+
+          const remaining = aiCheck.remaining;
+          const footer = remaining !== undefined && remaining < 10
+            ? `\n\n_${remaining} perguntas restantes_`
+            : '';
+
+          await sendMessageWithTyping(groupJid!, aiResponse + footer);
+        } catch (aiError) {
+          console.error('[Router] Group AI failed:', aiError);
+          await sendMessageWithTyping(groupJid!, 'Eita, deu ruim aqui. Tenta de novo!');
+        }
         return;
       }
-      // In DM, show onboarding or unknown
+
+      // @mentioned with unknown but not a question → ignore
+      if (intent.type === 'unknown') return;
+
+      // @mentioned with private intent → redirect to DM
+      if (PRIVATE_INTENTS.has(intent.type)) {
+        const displayName = pushName ?? 'Gorila';
+        await sendMessageWithTyping(groupJid!, `@${displayName} te mandei no privado 👀`);
+        const responseText = await handleIntent(user.id, intent);
+        await sendResponseWithImages(phoneNumber, intent, user.id, responseText);
+        return;
+      }
+
+      // Public intent (price_check, help) → respond in group
+      const responseText = await handleIntent(user.id, intent);
+      const tier = await getUserTier(user.id);
+      const signature = tier !== 'free' ? `\n\n— IDM Bot (${tier === 'pro' ? 'Pro' : 'Whale'})` : '\n\n— IDM Bot';
+      await sendMessageWithTyping(groupJid!, responseText + signature);
+      return;
+    }
+
+    // =====================================================
+    // 💬 DM FLOW: natural language, no prefix needed
+    // =====================================================
+
+    // Handle unknown intent in DM
+    if (intent.type === 'unknown') {
       if (isNewUser) {
         await sendMessageWithTyping(phoneNumber, response.buildOnboarding(pushName));
       } else {
@@ -182,39 +212,9 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
     }
 
     // =====================================================
-    // 🔒 GROUP PRIVACY: redirect private intents to DM
-    // =====================================================
-    if (isGroup && PRIVATE_INTENTS.has(intent.type)) {
-      // Reply in group: "te mandei no privado"
-      const displayName = pushName ?? 'Gorila';
-      await sendMessageWithTyping(
-        groupJid!,
-        `@${displayName} te mandei no privado 👀`
-      );
-
-      // Process and send response in DM
-      const responseText = await handleIntent(user.id, intent);
-      await sendResponseWithImages(phoneNumber, intent, user.id, responseText);
-      return;
-    }
-
-    // =====================================================
-    // PUBLIC intents (price_check, help) → respond where asked
-    // =====================================================
-    const target = isGroup ? groupJid! : phoneNumber;
-    const responseText = await handleIntent(user.id, intent);
-
-    // In groups, send text only with subtle signature
-    if (isGroup) {
-      const tier = await getUserTier(user.id);
-      const signature = tier !== 'free' ? `\n\n— IDM Bot (${tier === 'pro' ? 'Pro' : 'Whale'})` : '\n\n— IDM Bot';
-      await sendMessageWithTyping(target, responseText + signature);
-      return;
-    }
-
-    // =====================================================
     // DM: progressive onboarding + images
     // =====================================================
+    const responseText = await handleIntent(user.id, intent);
     const onboardingStep = await getOnboardingStep(user.id);
 
     // After first buy → guide to "carteira"
