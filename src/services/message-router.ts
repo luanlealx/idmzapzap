@@ -532,7 +532,13 @@ async function handleIntent(
     }
 
     case 'set_alert': {
-      const { crypto, targetPrice, alertType } = intent.data ?? {};
+      const { crypto, targetPrice, alertType, removeIndex } = intent.data ?? {};
+
+      // Remove alert by index: "remover alerta 1"
+      if (removeIndex !== undefined) {
+        const { removeAlertByIndex } = await import('./alert-service.js');
+        return await removeAlertByIndex(userId, removeIndex);
+      }
 
       if (!crypto || !targetPrice || !alertType) {
         // Maybe they want to list alerts

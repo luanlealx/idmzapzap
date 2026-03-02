@@ -224,18 +224,33 @@ export async function startCheckout(
   const existingPending = await findPendingPaymentByUser(userId);
   if (existingPending) {
     if (existingPending.plan === plan && existingPending.method === 'pix' && existingPending.pix_qr_code) {
+      // Restore session so interceptor can handle "gerar novo", "cancelar", "pagar crypto"
+      checkoutSessions.set(userId, {
+        step: 'awaiting_pix',
+        plan,
+        prices,
+        paymentId: existingPending.id,
+        createdAt: Date.now(),
+      });
       return `Você já tem um PIX pendente pro plano *${prices.planName}*!\n\n` +
         `Copia e cola:\n\`\`\`${existingPending.pix_qr_code}\`\`\`\n\n` +
         `Expira em ${getTimeRemaining(existingPending.expires_at)}.\n\n` +
-        `Quer gerar novo? Manda *gerar novo* ou *pagar crypto*.\n` +
-        `Manda *cancelar* pra desistir.`;
+        `_Manda *gerar novo*, *pagar crypto* ou *cancelar*._`;
     }
     if (existingPending.plan === plan && existingPending.method === 'crypto') {
+      // Restore session so interceptor can handle tx hash, "cancelar", "pagar pix"
+      checkoutSessions.set(userId, {
+        step: 'awaiting_crypto',
+        plan,
+        prices,
+        paymentId: existingPending.id,
+        createdAt: Date.now(),
+      });
       return `Você já tem pagamento crypto pendente!\n\n` +
         `Envia *${existingPending.crypto_amount} USDT* na rede *${existingPending.crypto_chain?.toUpperCase()}* para:\n\n` +
         `\`\`\`${existingPending.crypto_address}\`\`\`\n\n` +
-        `Depois manda o *tx hash* aqui pra confirmar.\n` +
-        `Manda *cancelar* pra desistir.`;
+        `Depois manda o *tx hash* aqui pra eu verificar.\n` +
+        `_Manda *pagar pix* pra trocar ou *cancelar* pra desistir._`;
     }
     // Different plan → expire old one
     if (existingPending.plan !== plan) {
@@ -460,6 +475,10 @@ export async function handleCryptoConfirmation(
 
   if (verified === 'pending') {
     return { confirmed: false, message: '⏳ Transação encontrada mas ainda não confirmada. Espera mais um pouco e manda o hash de novo.' };
+  }
+
+  if (verified === 'error') {
+    return { confirmed: false, message: '⚠️ Não consegui verificar a transação agora (API indisponível). Tenta de novo em alguns minutos.' };
   }
 
   // 🔒 Prevent tx hash reuse across payments

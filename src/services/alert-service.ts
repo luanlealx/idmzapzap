@@ -4,6 +4,7 @@ import {
   countUserAlerts,
   getActiveAlerts,
   triggerAlert,
+  removeAlert,
   type PriceAlert,
 } from '../database/repositories/alert.repo.js';
 import { canAddAlert } from './tier-service.js';
@@ -87,7 +88,30 @@ export async function listAlerts(userId: string): Promise<string> {
     })
     .join('\n');
 
-  return `🔔 *Alertas Ativos* (${alerts.length})\n\n${text}`;
+  return `🔔 *Alertas Ativos* (${alerts.length})\n\n${text}\n\n_Manda "remover alerta N" pra cancelar._`;
+}
+
+export async function removeAlertByIndex(userId: string, index: number): Promise<string> {
+  const alerts = await getUserAlerts(userId);
+
+  if (alerts.length === 0) {
+    return '🔔 Nenhum alerta ativo pra remover.';
+  }
+
+  if (index < 1 || index > alerts.length) {
+    return `⚠️ Número inválido. Você tem ${alerts.length} alerta(s). Manda *meus alertas* pra ver a lista.`;
+  }
+
+  const alert = alerts[index - 1]!;
+  const removed = await removeAlert(userId, alert.id);
+
+  if (!removed) {
+    return '❌ Erro ao remover alerta. Tenta de novo.';
+  }
+
+  const symbol = getCryptoSymbol(alert.crypto_id);
+  const direction = alert.alert_type === 'above' ? 'acima' : 'abaixo';
+  return `✅ Alerta removido: ${symbol} ${direction} de ${formatCurrency(alert.target_price)}`;
 }
 
 // =====================================================

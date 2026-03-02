@@ -77,7 +77,7 @@ function parseQuickPatterns(text: string): ParsedIntent | null {
     return { type: 'my_plan', data: {}, confidence: 1.0, rawText: text };
   }
 
-  if (/^(upgrade|planos|precos|pricing)$/i.test(lower)) {
+  if (/^(upgrade|planos|pre[cç]os|pricing)$/i.test(lower)) {
     return { type: 'upgrade', data: {}, confidence: 1.0, rawText: text };
   }
 
@@ -101,13 +101,19 @@ function parseQuickPatterns(text: string): ParsedIntent | null {
   }
 
   // Referral
-  if (/^(referral|indicar|convite|meu codigo|meu link)$/i.test(lower)) {
+  if (/^(referral|indicar|convite|meu c[oó]digo|meu link)$/i.test(lower)) {
     return { type: 'referral', data: {}, confidence: 1.0, rawText: text };
   }
 
   // Alert listing
   if (/^(meus alertas|alertas|listar alertas|ver alertas)$/i.test(lower)) {
     return { type: 'set_alert', data: {}, confidence: 1.0, rawText: text };
+  }
+
+  // Alert removal: "remover alerta 1", "cancelar alerta 2", "excluir alerta 3"
+  const removeAlertMatch = lower.match(/^(?:remover|cancelar|excluir|deletar)\s+alerta\s+(\d+)$/);
+  if (removeAlertMatch) {
+    return { type: 'set_alert', data: { removeIndex: parseInt(removeAlertMatch[1]!, 10) }, confidence: 1.0, rawText: text };
   }
 
   // Referral code received (new user sends "IDM1234ABC")

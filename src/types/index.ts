@@ -73,6 +73,7 @@ export interface ParsedIntent {
     price?: number;
     targetPrice?: number;
     alertType?: 'above' | 'below';
+    removeIndex?: number;
     goalAmount?: number;
     months?: number;
     walletAddress?: string;
