@@ -1,0 +1,4 @@
+-- Migration already applied via Supabase MCP
+-- See: add_subscription_tiers
+-- Tables: idm_tier_limits, idm_alerts
+-- Columns added to idm_users: tier, tier_started_at, tier_expires_at, stripe_customer_id, group_ai_queries_today, group_ai_queries_reset_at

@@ -58,6 +58,9 @@ export type IntentType =
   | 'remove_wallet'
   | 'wallet_balance'
   | 'help'
+  | 'my_plan'
+  | 'upgrade'
+  | 'group_ai_question'
   | 'unknown';
 
 export interface ParsedIntent {

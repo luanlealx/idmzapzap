@@ -44,6 +44,10 @@ Exemplos:
 Apenas retorne o JSON, sem explicações adicionais.`;
 
 export async function parseIntent(text: string): Promise<ParsedIntent> {
+  // Quick local patterns (no LLM needed)
+  const quickResult = parseQuickPatterns(text);
+  if (quickResult) return quickResult;
+
   // Try LLM first
   try {
     const result = await parseWithLLM(text);
@@ -58,6 +62,36 @@ export async function parseIntent(text: string): Promise<ParsedIntent> {
   // Fallback to regex
   const regexResult = parseWithRegex(text);
   return regexResult;
+}
+
+// Quick patterns that don't need LLM
+function parseQuickPatterns(text: string): ParsedIntent | null {
+  const lower = text.toLowerCase().trim();
+
+  // Tier / Plan
+  if (/^(meu plano|plano|assinatura|tier|status)$/i.test(lower)) {
+    return { type: 'my_plan', data: {}, confidence: 1.0, rawText: text };
+  }
+
+  if (/^(upgrade|assinar|planos|precos|pricing)$/i.test(lower)) {
+    return { type: 'upgrade', data: {}, confidence: 1.0, rawText: text };
+  }
+
+  if (/^assinar (pro|whale)$/i.test(lower)) {
+    return { type: 'upgrade', data: {}, confidence: 1.0, rawText: text };
+  }
+
+  // Wallet address detection (no LLM needed)
+  if (isWalletAddress(lower)) {
+    return {
+      type: 'watch_wallet',
+      data: { walletAddress: text.trim() },
+      confidence: 0.95,
+      rawText: text,
+    };
+  }
+
+  return null;
 }
 
 async function parseWithLLM(text: string): Promise<ParsedIntent> {

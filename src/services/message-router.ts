@@ -25,6 +25,16 @@ import {
   generateMemeCard,
   shouldGenerateMeme,
 } from './image-generator.js';
+import {
+  canAddWallet,
+  canUseChain,
+  canUseGroupAI,
+  incrementGroupAIUsage,
+  getUserTier,
+  buildUpgradePlans,
+  buildTierInfo,
+  buildUpgradeMessage,
+} from './tier-service.js';
 
 // =====================================================
 // 🔒 SECURITY: Admin whitelist
@@ -103,7 +113,46 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
     // Handle unknown intent
     if (intent.type === 'unknown') {
       if (isGroup) {
-        // In groups, ignore unknown messages (don't spam the group)
+        // Check if bot was @mentioned — trigger Group AI (Pro/Whale)
+        const isMentioned = text.toLowerCase().includes('@idm') ||
+          text.toLowerCase().includes('idm bot') ||
+          text.toLowerCase().includes('idm,');
+
+        if (isMentioned) {
+          const aiCheck = await canUseGroupAI(user.id);
+
+          if (!aiCheck.allowed) {
+            if (aiCheck.upgrade) {
+              await sendMessageWithTyping(
+                groupJid!,
+                `@${pushName ?? 'Gorila'} essa feature e do plano Pro! Manda "upgrade" no meu privado pra saber mais 🔓`
+              );
+            } else {
+              await sendMessageWithTyping(groupJid!, aiCheck.reason ?? 'Limite atingido.');
+            }
+            return;
+          }
+
+          // Has access — generate smart response with Sonnet
+          try {
+            const { generateGroupAIResponse } = await import('./group-ai.js');
+            const aiResponse = await generateGroupAIResponse(text);
+            await incrementGroupAIUsage(user.id);
+
+            const remaining = aiCheck.remaining;
+            const footer = remaining !== undefined && remaining < 10
+              ? `\n\n_${remaining} perguntas restantes hoje_`
+              : '';
+
+            await sendMessageWithTyping(groupJid!, aiResponse + footer);
+          } catch (aiError) {
+            console.error('[Router] Group AI failed:', aiError);
+            await sendMessageWithTyping(groupJid!, 'Eita, deu ruim aqui. Tenta de novo!');
+          }
+          return;
+        }
+
+        // Not mentioned in group — ignore silently
         return;
       }
       // In DM, show onboarding or unknown
@@ -397,10 +446,17 @@ async function handleIntent(
         return response.buildInvalidAddress();
       }
 
-      // Limite de 5 wallets por usuário
+      // 🏷️ Check chain access
+      const chainCheck = await canUseChain(userId, chain);
+      if (!chainCheck.allowed) {
+        return chainCheck.reason! + buildUpgradeMessage('Mais redes');
+      }
+
+      // 🏷️ Check wallet limit
       const walletCount = await countUserWallets(userId);
-      if (walletCount >= 5) {
-        return response.buildWalletLimitReached();
+      const walletCheck = await canAddWallet(userId, walletCount);
+      if (!walletCheck.allowed) {
+        return walletCheck.reason! + buildUpgradeMessage('Mais wallets');
       }
 
       // Salva no banco
@@ -459,6 +515,20 @@ async function handleIntent(
 
     case 'help': {
       return response.buildHelp();
+    }
+
+    case 'my_plan': {
+      const tier = await getUserTier(userId);
+      return buildTierInfo(tier);
+    }
+
+    case 'upgrade': {
+      return buildUpgradePlans();
+    }
+
+    case 'group_ai_question': {
+      // This should not reach here — handled in processMessage
+      return response.buildUnknownIntent();
     }
 
     default:
