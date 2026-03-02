@@ -78,6 +78,7 @@ export interface ParsedIntent {
     walletAddress?: string;
     walletLabel?: string;
     referralCode?: string;
+    plan?: 'pro' | 'whale';
   };
   confidence: number;
   rawText: string;

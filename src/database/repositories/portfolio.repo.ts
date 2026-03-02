@@ -34,15 +34,6 @@ export async function getHoldingByUserAndCrypto(
   return data as Holding | null;
 }
 
-export async function refreshHoldings(): Promise<void> {
-  const { error } = await supabase.rpc('idm_refresh_holdings');
-
-  if (error) {
-    console.error('[PortfolioRepo] Error refreshing holdings:', error);
-    // Don't throw, as this is called by trigger anyway
-  }
-}
-
 // DCA Goals
 export async function getDcaGoal(userId: string, cryptoId: string): Promise<DcaGoal | null> {
   const { data, error } = await supabase

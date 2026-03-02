@@ -77,12 +77,27 @@ function parseQuickPatterns(text: string): ParsedIntent | null {
     return { type: 'my_plan', data: {}, confidence: 1.0, rawText: text };
   }
 
-  if (/^(upgrade|assinar|planos|precos|pricing)$/i.test(lower)) {
+  if (/^(upgrade|planos|precos|pricing)$/i.test(lower)) {
     return { type: 'upgrade', data: {}, confidence: 1.0, rawText: text };
   }
 
-  if (/^assinar (pro|whale)$/i.test(lower)) {
+  // Subscribe to specific plan: "assinar pro", "assinar whale", "quero pro"
+  const planMatch = lower.match(/^(?:assinar|quero|contratar|ativar)\s+(pro|whale)$/i);
+  if (planMatch?.[1]) {
+    const plan = planMatch[1].toLowerCase() as 'pro' | 'whale';
+    return { type: 'upgrade', data: { plan }, confidence: 1.0, rawText: text };
+  }
+
+  // "assinar" alone = show plans
+  if (/^(assinar)$/i.test(lower)) {
     return { type: 'upgrade', data: {}, confidence: 1.0, rawText: text };
+  }
+
+  // Payment method shortcuts during checkout
+  if (/^(pix|crypto|novo pix|pagar crypto|pagar pix)$/i.test(lower)) {
+    // These are handled by checkout session interceptor in message-router
+    // Return upgrade so it flows to the payment handler
+    return { type: 'upgrade', data: {}, confidence: 0.95, rawText: text };
   }
 
   // Referral

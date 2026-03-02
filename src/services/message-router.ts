@@ -43,6 +43,13 @@ import {
   getOrCreateReferralCode,
   processReferral,
 } from './tier-service.js';
+import {
+  isCheckoutMessage,
+  handleCheckoutMessage,
+  startCheckout,
+  checkPendingPixPayment,
+  getCheckoutSession,
+} from './payment.js';
 
 // =====================================================
 // 🔒 SECURITY: Admin whitelist
@@ -209,6 +216,34 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
     // =====================================================
     // 💬 DM FLOW: natural language, no prefix needed
     // =====================================================
+
+    // 🛒 CHECKOUT INTERCEPTOR: if user is in active checkout, route here first
+    if (!isGroup && isCheckoutMessage(user.id, text)) {
+      const result = await handleCheckoutMessage(user.id, text);
+      if (result.qrCodeBase64) {
+        // Send QR code image + text
+        const imageBuffer = Buffer.from(result.qrCodeBase64, 'base64');
+        await sendImageWithTyping(phoneNumber, imageBuffer, result.text);
+      } else {
+        await sendMessageWithTyping(phoneNumber, result.text);
+      }
+      return;
+    }
+
+    // 🛒 PIX POLL: if user has pending PIX and sends any message, check if it was paid
+    if (!isGroup) {
+      const session = getCheckoutSession(user.id);
+      if (session?.step === 'awaiting_pix') {
+        const pixCheck = await checkPendingPixPayment(user.id);
+        if (pixCheck.confirmed) {
+          const planName = pixCheck.plan === 'whale' ? 'Whale' : 'Pro';
+          await sendMessageWithTyping(phoneNumber,
+            `✅ *PIX confirmado!*\n\nPlano *${planName}* ativado por 30 dias.\n\nManda *meu plano* pra ver tudo que desbloqueou.`
+          );
+          return;
+        }
+      }
+    }
 
     // Handle unknown intent in DM
     if (intent.type === 'unknown') {
@@ -482,10 +517,17 @@ async function handleIntent(
     }
 
     case 'set_alert': {
-      // Future feature - just acknowledge for now
-      return response.buildError(
-        'Alertas de preço em breve! Por enquanto, use "preço do btc" para ver cotações.'
-      );
+      const { crypto, targetPrice, alertType } = intent.data ?? {};
+
+      if (!crypto || !targetPrice || !alertType) {
+        // Maybe they want to list alerts
+        const { listAlerts } = await import('./alert-service.js');
+        return await listAlerts(userId);
+      }
+
+      const { setAlert } = await import('./alert-service.js');
+      const result = await setAlert(userId, crypto, targetPrice, alertType);
+      return result.message;
     }
 
     // =====================================================
@@ -584,6 +626,12 @@ async function handleIntent(
     }
 
     case 'upgrade': {
+      const plan = intent.data?.plan;
+      if (plan) {
+        // User said "assinar pro" or "assinar whale" → start checkout
+        return await startCheckout(userId, plan);
+      }
+      // Just "upgrade" → show plans
       return buildUpgradePlans();
     }
 
