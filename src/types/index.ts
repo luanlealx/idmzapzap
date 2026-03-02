@@ -50,6 +50,10 @@ export type IntentType =
   | 'dca_progress'
   | 'projection'
   | 'set_alert'
+  | 'watch_wallet'
+  | 'list_wallets'
+  | 'remove_wallet'
+  | 'wallet_balance'
   | 'help'
   | 'unknown';
 
@@ -64,6 +68,8 @@ export interface ParsedIntent {
     alertType?: 'above' | 'below';
     goalAmount?: number;
     months?: number;
+    walletAddress?: string;
+    walletLabel?: string;
   };
   confidence: number;
   rawText: string;

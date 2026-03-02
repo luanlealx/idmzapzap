@@ -4,6 +4,8 @@ import type {
 } from '../types/index.js';
 import type { BuyResult, SellResult, DcaProgress, Projection } from './portfolio.js';
 import type { SpotPrice } from './price-service.js';
+import type { WalletSummary } from './wallet-tracker.js';
+import type { Wallet } from '../database/repositories/wallet.repo.js';
 import {
   formatCurrency,
   formatCryptoAmount,
@@ -13,6 +15,7 @@ import {
   progressBar,
 } from '../utils/formatters.js';
 import { getCryptoDisplayName, getCryptoSymbol } from '../utils/crypto-mapper.js';
+import { formatAddress, formatChainName } from './wallet-tracker.js';
 
 export function buildBuyConfirmation(result: BuyResult): string {
   const symbol = getCryptoSymbol(result.cryptoId);
@@ -247,4 +250,78 @@ export function buildCryptoNotSupported(input: string): string {
   return `❌ Cripto "${input}" não reconhecida.
 
 💡 Tente usar símbolos como BTC, ETH, SOL, etc.`;
+}
+
+// =====================================================
+// Wallet Tracking Responses
+// =====================================================
+
+export function buildWalletAdded(summary: WalletSummary): string {
+  const chainName = formatChainName(summary.chain);
+  const addr = formatAddress(summary.address);
+
+  if (summary.balances.length === 0) {
+    return `👛 *Wallet adicionada!*\n\n${chainName}\n📍 ${addr}\n\n💰 Saldo: vazio (0)\n\n💡 Envie "minhas wallets" para ver todas.`;
+  }
+
+  const balancesText = summary.balances
+    .map((b) => `   ${b.symbol}: ${formatCryptoAmount(b.balance)} (~R$${b.valueBrl.toFixed(2)})`)
+    .join('\n');
+
+  return `👛 *Wallet adicionada!*\n\n${chainName}\n📍 ${addr}\n\n💰 *Saldos:*\n${balancesText}\n\n💎 *Total:* ~R$${summary.totalBrl.toFixed(2)}\n\n💡 Envie "minhas wallets" para ver todas.`;
+}
+
+export function buildWalletBalance(summary: WalletSummary): string {
+  const chainName = formatChainName(summary.chain);
+  const addr = formatAddress(summary.address);
+
+  if (summary.balances.length === 0) {
+    return `👛 ${chainName}\n📍 ${addr}\n${summary.label ? `🏷️ ${summary.label}\n` : ''}\n💰 Saldo: vazio`;
+  }
+
+  const balancesText = summary.balances
+    .map((b) => `   ${b.symbol}: ${formatCryptoAmount(b.balance)} (~R$${b.valueBrl.toFixed(2)})`)
+    .join('\n');
+
+  return `👛 ${chainName}\n📍 ${addr}\n${summary.label ? `🏷️ ${summary.label}\n` : ''}\n💰 *Saldos:*\n${balancesText}\n\n💎 *Total:* ~R$${summary.totalBrl.toFixed(2)}`;
+}
+
+export function buildWalletList(wallets: Wallet[], summaries: WalletSummary[]): string {
+  if (wallets.length === 0) {
+    return `👛 *Minhas Wallets*\n\nNenhuma wallet monitorada.\n\n💡 Cole um endereço BTC, ETH ou SOL para começar!`;
+  }
+
+  let grandTotalBrl = 0;
+
+  const walletsText = summaries
+    .map((s) => {
+      grandTotalBrl += s.totalBrl;
+      const chainName = formatChainName(s.chain);
+      const addr = formatAddress(s.address);
+      const label = s.label ? ` (${s.label})` : '';
+      const balanceText = s.balances.length > 0
+        ? s.balances.map((b) => `${b.symbol}: ${formatCryptoAmount(b.balance)}`).join(', ')
+        : 'vazio';
+
+      return `${chainName}${label}\n   📍 ${addr}\n   💰 ${balanceText} (~R$${s.totalBrl.toFixed(2)})`;
+    })
+    .join('\n\n');
+
+  return `👛 *Minhas Wallets* (${wallets.length})\n\n${walletsText}\n\n━━━━━━━━━━━━━━━\n💎 *Total on-chain:* ~R$${grandTotalBrl.toFixed(2)}`;
+}
+
+export function buildWalletRemoved(address: string): string {
+  return `🗑️ Wallet ${formatAddress(address)} removida.`;
+}
+
+export function buildWalletNotFound(address: string): string {
+  return `❌ Wallet ${formatAddress(address)} não encontrada na sua lista.\n\n💡 Envie "minhas wallets" para ver suas wallets.`;
+}
+
+export function buildWalletLimitReached(): string {
+  return `❌ Limite de wallets atingido (máximo 5).\n\n💡 Remova uma wallet com "remover wallet 0x..." antes de adicionar outra.`;
+}
+
+export function buildInvalidAddress(): string {
+  return `❌ Endereço inválido.\n\n💡 Formatos aceitos:\n• Bitcoin: 1..., 3..., bc1...\n• Ethereum: 0x...\n• Solana: endereço Base58`;
 }

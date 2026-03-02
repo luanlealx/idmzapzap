@@ -16,6 +16,8 @@ import { getSpotPrice } from './price-service.js';
 import { sendMessageWithTyping } from './whatsapp.js';
 import * as response from './response-builder.js';
 import { checkRateLimit, recordRequest } from '../utils/rate-limiter.js';
+import { detectChain, getWalletBalance, type Chain } from './wallet-tracker.js';
+import { addWallet, getUserWallets, removeWallet, countUserWallets } from '../database/repositories/wallet.repo.js';
 
 // =====================================================
 // 🔒 SECURITY: Admin whitelist
@@ -265,6 +267,81 @@ async function handleIntent(
       return response.buildError(
         'Alertas de preço em breve! Por enquanto, use "preço do btc" para ver cotações.'
       );
+    }
+
+    // =====================================================
+    // Wallet Tracking
+    // =====================================================
+
+    case 'watch_wallet': {
+      const walletAddress = intent.data?.walletAddress;
+      if (!walletAddress) {
+        return response.buildInvalidAddress();
+      }
+
+      const chain = detectChain(walletAddress);
+      if (!chain) {
+        return response.buildInvalidAddress();
+      }
+
+      // Limite de 5 wallets por usuário
+      const walletCount = await countUserWallets(userId);
+      if (walletCount >= 5) {
+        return response.buildWalletLimitReached();
+      }
+
+      // Salva no banco
+      await addWallet({
+        userId,
+        address: walletAddress.toLowerCase(),
+        chain,
+        label: intent.data?.walletLabel,
+      });
+
+      // Busca saldo atual
+      const walletSummary = await getWalletBalance(walletAddress, chain);
+
+      return response.buildWalletAdded(walletSummary);
+    }
+
+    case 'list_wallets': {
+      const wallets = await getUserWallets(userId);
+
+      // Busca saldo de cada wallet
+      const summaries = await Promise.all(
+        wallets.map((w) => getWalletBalance(w.address, w.chain as Chain, w.label ?? undefined))
+      );
+
+      return response.buildWalletList(wallets, summaries);
+    }
+
+    case 'remove_wallet': {
+      const removeAddr = intent.data?.walletAddress;
+      if (!removeAddr) {
+        return response.buildInvalidAddress();
+      }
+
+      const removed = await removeWallet(userId, removeAddr);
+      if (!removed) {
+        return response.buildWalletNotFound(removeAddr);
+      }
+
+      return response.buildWalletRemoved(removeAddr);
+    }
+
+    case 'wallet_balance': {
+      const balanceAddr = intent.data?.walletAddress;
+      if (!balanceAddr) {
+        return response.buildInvalidAddress();
+      }
+
+      const balanceChain = detectChain(balanceAddr);
+      if (!balanceChain) {
+        return response.buildInvalidAddress();
+      }
+
+      const balanceSummary = await getWalletBalance(balanceAddr, balanceChain);
+      return response.buildWalletBalance(balanceSummary);
     }
 
     case 'help': {

@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../config/env.js';
 import type { ParsedIntent, IntentType } from '../types/index.js';
 import { resolveCryptoId, getAllAliases } from '../utils/crypto-mapper.js';
+import { isWalletAddress } from './wallet-tracker.js';
 
 const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
@@ -34,6 +35,10 @@ Exemplos:
 - "progresso dca" → {"type": "dca_progress", "data": {}, "confidence": 0.9}
 - "projeção 12 meses" → {"type": "projection", "data": {"months": 12}, "confidence": 0.9}
 - "alerta btc acima de 500000" → {"type": "set_alert", "data": {"crypto": "btc", "targetPrice": 500000, "alertType": "above"}, "confidence": 0.9}
+- "monitorar 0x1234..." ou endereço de wallet → {"type": "watch_wallet", "data": {"walletAddress": "0x1234..."}, "confidence": 0.95}
+- "minhas wallets" ou "carteiras on-chain" → {"type": "list_wallets", "data": {}, "confidence": 0.9}
+- "remover wallet 0x1234..." → {"type": "remove_wallet", "data": {"walletAddress": "0x1234..."}, "confidence": 0.9}
+- "saldo 0x1234..." ou "balance" → {"type": "wallet_balance", "data": {"walletAddress": "0x1234..."}, "confidence": 0.9}
 - "ajuda" ou "comandos" → {"type": "help", "data": {}, "confidence": 1.0}
 
 Apenas retorne o JSON, sem explicações adicionais.`;
@@ -288,6 +293,62 @@ function parseWithRegex(text: string): ParsedIntent {
         rawText: text,
       };
     }
+  }
+
+  // Wallet tracking patterns
+
+  // "monitorar 0x..." or "rastrear bc1..." or "watch Sol..."
+  const watchWalletMatch = normalizedText.match(
+    /^(?:monitorar|rastrear|track|watch|adicionar wallet|add wallet)\s+(\S+)$/i
+  );
+  if (watchWalletMatch?.[1] && isWalletAddress(watchWalletMatch[1])) {
+    return {
+      type: 'watch_wallet',
+      data: { walletAddress: watchWalletMatch[1] },
+      confidence: 0.95,
+      rawText: text,
+    };
+  }
+
+  // Just a raw wallet address (detect by format)
+  if (isWalletAddress(normalizedText)) {
+    return {
+      type: 'watch_wallet',
+      data: { walletAddress: normalizedText },
+      confidence: 0.9,
+      rawText: text,
+    };
+  }
+
+  // "minhas wallets" or "carteiras"
+  if (/^(?:minhas?\s+wallets?|carteiras?\s+on.?chain|wallets?|endereços)$/i.test(normalizedText)) {
+    return { type: 'list_wallets', confidence: 0.9, rawText: text };
+  }
+
+  // "remover wallet 0x..."
+  const removeWalletMatch = normalizedText.match(
+    /^(?:remover|remove|excluir|deletar)\s+(?:wallet|carteira)\s+(\S+)$/i
+  );
+  if (removeWalletMatch?.[1]) {
+    return {
+      type: 'remove_wallet',
+      data: { walletAddress: removeWalletMatch[1] },
+      confidence: 0.9,
+      rawText: text,
+    };
+  }
+
+  // "saldo 0x..." or "balance 0x..."
+  const walletBalanceMatch = normalizedText.match(
+    /^(?:saldo|balance|ver)\s+(\S+)$/i
+  );
+  if (walletBalanceMatch?.[1] && isWalletAddress(walletBalanceMatch[1])) {
+    return {
+      type: 'wallet_balance',
+      data: { walletAddress: walletBalanceMatch[1] },
+      confidence: 0.9,
+      rawText: text,
+    };
   }
 
   // Unknown intent
