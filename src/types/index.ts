@@ -15,6 +15,7 @@ export interface EvolutionMessageData {
     remoteJid: string;
     fromMe: boolean;
     id: string;
+    participant?: string;
   };
   pushName?: string;
   message?: {
@@ -36,6 +37,8 @@ export interface ParsedMessage {
   pushName?: string;
   messageId: string;
   timestamp: number;
+  isGroup: boolean;
+  groupJid?: string;
 }
 
 // Intent Types

@@ -27,11 +27,15 @@ export function parseMessage(payload: EvolutionWebhookPayload): ParsedMessage | 
     return null;
   }
 
-  // Ignore group messages — only private chats
+  // Ignore broadcast messages
   const remoteJid = data.key.remoteJid ?? '';
-  if (remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast')) {
+  if (remoteJid.endsWith('@broadcast')) {
     return null;
   }
+
+  // Detect group messages
+  const isGroup = remoteJid.endsWith('@g.us');
+  const groupJid = isGroup ? remoteJid : undefined;
 
   // Extract text from message
   let text: string | undefined;
@@ -51,10 +55,16 @@ export function parseMessage(payload: EvolutionWebhookPayload): ParsedMessage | 
     text = text.slice(0, MAX_MESSAGE_LENGTH);
   }
 
-  // Extract phone number from sender field (Evolution v1.x format)
-  // Format: 5511999999999@s.whatsapp.net
-  // Fallback to remoteJid if sender is not present
-  const senderJid = payload.sender ?? data.key.remoteJid;
+  // Extract phone number
+  // In groups: sender is the participant (data.key.participant or payload.sender)
+  // In DMs: sender is remoteJid
+  let senderJid: string;
+  if (isGroup) {
+    // In groups, participant field has the actual sender
+    senderJid = data.key.participant ?? payload.sender ?? '';
+  } else {
+    senderJid = payload.sender ?? data.key.remoteJid;
+  }
   const phoneNumber = senderJid.split('@')[0];
 
   // 🔒 Validate phone number format
@@ -69,6 +79,8 @@ export function parseMessage(payload: EvolutionWebhookPayload): ParsedMessage | 
     pushName: sanitizePushName(data.pushName),
     messageId: data.key.id,
     timestamp: data.messageTimestamp ?? Date.now(),
+    isGroup,
+    groupJid,
   };
 }
 

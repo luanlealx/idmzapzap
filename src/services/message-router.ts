@@ -43,22 +43,36 @@ const ADMIN_WHITELIST: Set<string> | null = (() => {
 const MAX_TRANSACTION_FIAT = 1_000_000; // R$ 1M max per transaction
 const MAX_DCA_GOAL = 10_000_000; // R$ 10M max DCA goal
 
+// =====================================================
+// 🔒 PRIVACY: Intents that should only be answered in DM
+// =====================================================
+const PRIVATE_INTENTS = new Set([
+  'buy', 'sell', 'portfolio_summary', 'asset_detail',
+  'remove_asset', 'set_dca_goal', 'dca_progress', 'projection',
+  'watch_wallet', 'list_wallets', 'remove_wallet', 'wallet_balance',
+]);
+
+// Intents safe to answer in groups (public info)
+// price_check, help, unknown, set_alert → respond in group
+
 export async function processMessage(message: ParsedMessage): Promise<void> {
-  const { phoneNumber, text, pushName } = message;
+  const { phoneNumber, text, pushName, isGroup, groupJid } = message;
 
   // 🔒 Safe logging
   const maskedPhone = env.NODE_ENV === 'production'
     ? `${phoneNumber.slice(0, 4)}***${phoneNumber.slice(-2)}`
     : phoneNumber;
-  console.log(`[Router] Processing message from ${maskedPhone}: "${text.slice(0, 80)}"`);
+  const context = isGroup ? `[GROUP ${groupJid}]` : '[DM]';
+  console.log(`[Router] ${context} Message from ${maskedPhone}: "${text.slice(0, 80)}"`);
 
   try {
     // 🔒 Whitelist check (beta mode)
     if (ADMIN_WHITELIST && !ADMIN_WHITELIST.has(phoneNumber)) {
       console.log(`[Router] Blocked: ${maskedPhone} not in whitelist`);
+      const target = isGroup ? groupJid! : phoneNumber;
       await sendMessageWithTyping(
-        phoneNumber,
-        '🔒 O IDM Carteira está em fase beta. Em breve você poderá usar! Fique de olho na comunidade.'
+        target,
+        '🔒 O IDM Carteira está em fase beta. Em breve você poderá usar!'
       );
       return;
     }
@@ -67,7 +81,8 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
     const rateLimitResult = checkRateLimit(phoneNumber);
     if (!rateLimitResult.allowed) {
       console.log(`[Router] Rate limited: ${phoneNumber}`);
-      await sendMessageWithTyping(phoneNumber, response.buildRateLimited());
+      const target = isGroup ? groupJid! : phoneNumber;
+      await sendMessageWithTyping(target, response.buildRateLimited());
       return;
     }
 
@@ -87,7 +102,11 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
 
     // Handle unknown intent
     if (intent.type === 'unknown') {
-      // If new user, show onboarding instead
+      if (isGroup) {
+        // In groups, ignore unknown messages (don't spam the group)
+        return;
+      }
+      // In DM, show onboarding or unknown
       if (isNewUser) {
         await sendMessageWithTyping(phoneNumber, response.buildOnboarding(pushName));
       } else {
@@ -96,65 +115,103 @@ export async function processMessage(message: ParsedMessage): Promise<void> {
       return;
     }
 
-    // Route to appropriate handler
-    const responseText = await handleIntent(user.id, intent);
+    // =====================================================
+    // 🔒 GROUP PRIVACY: redirect private intents to DM
+    // =====================================================
+    if (isGroup && PRIVATE_INTENTS.has(intent.type)) {
+      // Reply in group: "te mandei no privado"
+      const displayName = pushName ?? 'Gorila';
+      await sendMessageWithTyping(
+        groupJid!,
+        `@${displayName} te mandei no privado 👀`
+      );
 
-    // 🖼️ Generate and send images for visual intents
-    try {
-      if (intent.type === 'portfolio_summary') {
-        const summary = await getPortfolioSummary(user.id);
-        if (summary.holdings.length > 0) {
-          const cardImage = await generatePortfolioCard(summary);
-          await sendImageWithTyping(phoneNumber, cardImage, responseText);
-
-          // Send meme if P/L is significant
-          if (shouldGenerateMeme(summary.total_profit_loss_percent)) {
-            const memeImage = await generateMemeCard(
-              summary.total_profit_loss_percent,
-              summary.total_current_value,
-              summary.total_profit_loss
-            );
-            await sendImageWithTyping(phoneNumber, memeImage);
-          }
-          return;
-        }
-      }
-
-      if (intent.type === 'price_check' && intent.data?.crypto) {
-        const spotPrice = await getSpotPrice(intent.data.crypto);
-        if (spotPrice) {
-          const priceImage = await generatePriceCard(spotPrice);
-          await sendImageWithTyping(phoneNumber, priceImage, responseText);
-          return;
-        }
-      }
-
-      if (intent.type === 'watch_wallet' || intent.type === 'wallet_balance') {
-        const addr = intent.data?.walletAddress;
-        if (addr) {
-          const chain = detectChain(addr);
-          if (chain) {
-            const walletSummary = await getWalletBalance(addr, chain);
-            const walletImage = await generateWalletCard(walletSummary);
-            await sendImageWithTyping(phoneNumber, walletImage, responseText);
-            return;
-          }
-        }
-      }
-    } catch (imgError) {
-      // Se falhar a geração de imagem, envia só texto
-      console.error('[Router] Image generation failed, sending text only:', imgError);
+      // Process and send response in DM
+      const responseText = await handleIntent(user.id, intent);
+      await sendResponseWithImages(phoneNumber, intent, user.id, responseText);
+      return;
     }
 
-    // Fallback: envia só texto
-    await sendMessageWithTyping(phoneNumber, responseText);
+    // =====================================================
+    // PUBLIC intents (price_check, help) → respond where asked
+    // =====================================================
+    const target = isGroup ? groupJid! : phoneNumber;
+    const responseText = await handleIntent(user.id, intent);
+
+    // In groups, send text only (no images, keep it clean)
+    if (isGroup) {
+      await sendMessageWithTyping(target, responseText);
+      return;
+    }
+
+    // In DM, send with images
+    await sendResponseWithImages(phoneNumber, intent, user.id, responseText);
   } catch (error) {
     console.error(`[Router] Error processing message:`, error);
 
+    const target = isGroup ? groupJid! : phoneNumber;
     const errorMessage =
       error instanceof Error ? error.message : 'Erro interno. Tente novamente.';
-    await sendMessageWithTyping(phoneNumber, response.buildError(errorMessage));
+    await sendMessageWithTyping(target, response.buildError(errorMessage));
   }
+}
+
+// =====================================================
+// 🖼️ Send response with image cards (DM only)
+// =====================================================
+async function sendResponseWithImages(
+  phoneNumber: string,
+  intent: Awaited<ReturnType<typeof parseIntent>>,
+  userId: string,
+  responseText: string
+): Promise<void> {
+  try {
+    if (intent.type === 'portfolio_summary') {
+      const summary = await getPortfolioSummary(userId);
+      if (summary.holdings.length > 0) {
+        const cardImage = await generatePortfolioCard(summary);
+        await sendImageWithTyping(phoneNumber, cardImage, responseText);
+
+        // Send meme if P/L is significant
+        if (shouldGenerateMeme(summary.total_profit_loss_percent)) {
+          const memeImage = await generateMemeCard(
+            summary.total_profit_loss_percent,
+            summary.total_current_value,
+            summary.total_profit_loss
+          );
+          await sendImageWithTyping(phoneNumber, memeImage);
+        }
+        return;
+      }
+    }
+
+    if (intent.type === 'price_check' && intent.data?.crypto) {
+      const spotPrice = await getSpotPrice(intent.data.crypto);
+      if (spotPrice) {
+        const priceImage = await generatePriceCard(spotPrice);
+        await sendImageWithTyping(phoneNumber, priceImage, responseText);
+        return;
+      }
+    }
+
+    if (intent.type === 'watch_wallet' || intent.type === 'wallet_balance') {
+      const addr = intent.data?.walletAddress;
+      if (addr) {
+        const chain = detectChain(addr);
+        if (chain) {
+          const walletSummary = await getWalletBalance(addr, chain);
+          const walletImage = await generateWalletCard(walletSummary);
+          await sendImageWithTyping(phoneNumber, walletImage, responseText);
+          return;
+        }
+      }
+    }
+  } catch (imgError) {
+    console.error('[Router] Image generation failed, sending text only:', imgError);
+  }
+
+  // Fallback: text only
+  await sendMessageWithTyping(phoneNumber, responseText);
 }
 
 async function handleIntent(
